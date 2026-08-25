@@ -13,7 +13,10 @@ using std::string;
 #include "sqlite/sqlite3.h"
 #include "bcrypt/scc_bcrypt.h"
 #include "Liteqry.h"
+#include <fstream>
 #include <functional>
+#include <stdexcept>
+#include <sstream>
 #include <vector>
 // HTTPS
 //httplib::SSLServer svr;
@@ -29,35 +32,56 @@ void printAll(const T& msg) {
     std::cout << msg << std::endl;
 }
 //--------------------------------------------------------------------------------------------------
-void iniConfig()
-{
-//	sLocalPath = ExtractFilePath(ParamStr(0));
-//	sFileName = ChangeFileExt(ExtractFileName(ParamStr(0)), "");
-//	AnsiString lsIniPath = ChangeFileExt(ParamStr(0), ".ini");
-//	//create log MaxSizeBytes defaults to 10 GB
-//	logger = new TSimpleLogger(2048); //2 GB
-//    Utils::Init();
-//	procMessage("Reading config ini files.");
-//	//Read cfg ini file and close it after reading needed variables
-//	ini = new TIniFile(lsIniPath);
-//	AnsiString  sDBConnectionFile   = ini->ReadString("Settings","DATABASE_CONNECTION","");
-//  	iPort                           = ini->ReadInteger("Settings","PORT", 8080);
-//	delete ini; ini = NULL;
+struct AppConfig {
+    string host = "127.0.0.1";
+    int port = 8080;
+    string databasePath = "data/sccrest.db";
+    string templatesPath = "templates/";
+    string staticPath = "static/";
+};
 
-    char keyArray[11];
-    keyArray[0] = '5';
-    keyArray[1] = 'd';
-    keyArray[2] = 's';
-    keyArray[3] = '$';
-    keyArray[4] = '2';
-    keyArray[5] = '%';
-    keyArray[6] = '#';
-    keyArray[7] = 's';
-    keyArray[8] = 'f';
-    keyArray[9] = 'd';
-    keyArray[10] = '\0'; // Always end with null
-    string secretKey = string(keyArray);
-    print(secretKey);
+static string trim(const string& value) {
+    const string whitespace = " \t\r\n";
+    const std::size_t first = value.find_first_not_of(whitespace);
+    if (first == string::npos) return "";
+    const std::size_t last = value.find_last_not_of(whitespace);
+    return value.substr(first, last - first + 1);
+}
+
+AppConfig iniConfig(const string& iniPath = "Testhttplib.ini") {
+    AppConfig config;
+    std::ifstream file(iniPath);
+
+    if (!file.is_open()) {
+        print("Configuration file not found: " + iniPath + ". Using defaults.");
+        return config;
+    }
+
+    string section;
+    string line;
+    while (std::getline(file, line)) {
+        line = trim(line);
+        if (line.empty() || line[0] == ';' || line[0] == '#') continue;
+
+        if (line.front() == '[' && line.back() == ']') {
+            section = trim(line.substr(1, line.size() - 2));
+            continue;
+        }
+
+        const std::size_t separator = line.find('=');
+        if (separator == string::npos) continue;
+
+        const string key = trim(line.substr(0, separator));
+        const string value = trim(line.substr(separator + 1));
+
+        if (section == "server" && key == "host") config.host = value;
+        else if (section == "server" && key == "port") config.port = std::stoi(value);
+        else if (section == "paths" && key == "database") config.databasePath = value;
+        else if (section == "paths" && key == "templates") config.templatesPath = value;
+        else if (section == "paths" && key == "static") config.staticPath = value;
+    }
+
+    return config;
 }
 //--------------------------------------------------------------------------------------------------
 // Helper function to read an HTML file from disk
@@ -96,12 +120,13 @@ void safeRoute(httplib::Server& svr, const string& path, std::function<void(cons
     }
 }
 //--------------------------------------------------------------------------------------------------
-string templatePath = "templates/";
-
 int main() {
-    iniConfig();
+    const AppConfig config = iniConfig();
     httplib::Server svr;
-    inja::Environment env("templates/");    // Initialize the Inja environment, pointing it to your templates folder
+    if (!svr.set_mount_point("/static", config.staticPath)) {
+        throw std::runtime_error("Could not mount static directory");
+    }
+    inja::Environment env(config.templatesPath);
     // 1. Root login page (GET)
     safeRoute(svr, "/", [&](const httplib::Request& req, httplib::Response& res) {
         nlohmann::json data;
@@ -114,7 +139,7 @@ int main() {
         string username = req.get_param_value("username");
         string password = req.get_param_value("password");
 
-        Liteqry db("data/sccrest.db");
+        Liteqry db(config.databasePath);
         auto result = db.query(
             "SELECT password_hash FROM users WHERE username = ?;",
             {username});
@@ -148,7 +173,7 @@ int main() {
         data["username"] = req.has_param("username") ? req.get_param_value("username") : "Guest";
         data["role"] = req.has_param("role") ? req.get_param_value("role") : "viewer";
 
-        Liteqry db("data/sccrest.db");
+        Liteqry db(config.databasePath);
         auto entityRows = db.query(
             "SELECT COALESCE(et.entity, 'Unknown') AS entity_type, "
             "COUNT(*) AS qty "
@@ -190,6 +215,6 @@ int main() {
     });
 
     print("Server running at http://localhost:8080/");
-    svr.listen("127.0.0.1", 8080);
+    svr.listen(config.host, config.port);
 }
 //--------------------------------------------------------------------------------------------------
