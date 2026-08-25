@@ -1,0 +1,14 @@
+# CodeBlocks/build output
+/obj/
+/bin/Debug/Testhttplib.exe
+*.depend
+*.layout
+
+# Local database files
+/bin/Debug/data/*.db
+/data/*.db
+
+# Temporary local tools
+/dump_db.cpp
+/dump_db.exe
+/dump_sqlite.o

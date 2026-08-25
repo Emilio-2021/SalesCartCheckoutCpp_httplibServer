@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order #{{ order.order_id }}</title>
+    <link href="/static/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-dark px-3 justify-content-between mb-4">
+        <a class="navbar-brand" href="/dashboard">← System Control Center</a>
+        <a href="/logout" class="btn btn-sm btn-danger">Logout</a>
+    </nav>
+    <main class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div><h1>Order #{{ order.order_id }}</h1><p class="text-muted mb-0">Created {{ order.created_at }}</p></div>
+            <a id="back-link" href="{{ back_url }}" class="btn btn-outline-secondary">{{ back_label }}</a>
+        </div>
+        {% if read_only %}<div class="alert alert-info"><strong>Read-only registry:</strong> refunds are available to operators and administrators only.</div>{% endif %}
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="card shadow-sm h-100"><div class="card-header bg-white fw-bold">Order Summary</div><div class="card-body">
+                    <p><strong>Customer:</strong><br>{{ order.customer_name }}</p>
+                    <p><strong>Status:</strong><br><span class="badge bg-secondary text-uppercase">{{ order.status }}</span></p>
+                    <p class="mb-0"><strong>Total:</strong><br><span class="fs-3 text-success">${{ order.order_total }}</span></p>
+                </div></div>
+            </div>
+            <div class="col-md-8">
+                <div class="card shadow-sm"><div class="card-header bg-white fw-bold">Invoice Line Items</div><div class="card-body p-0">
+                    <div class="table-responsive"><table class="table table-striped mb-0"><thead><tr><th class="ps-3">Product</th><th>SKU</th><th>Qty</th><th class="text-end">Unit price</th><th class="text-end pe-3">Total</th></tr></thead><tbody>
+                    {% for item in items %}<tr><td class="ps-3">{{ item.product_name }}</td><td><code>{{ item.sku }}</code></td><td>{{ item.quantity }}</td><td class="text-end">${{ item.unit_price }}</td><td class="text-end pe-3 fw-bold">${{ item.row_total }}</td></tr>{% endfor %}
+                    </tbody></table></div><div class="text-end p-3 border-top"><strong>Invoice total: ${{ order.order_total }}</strong></div>
+                </div></div>
+                {% if order.status == "COMPLETED" and not read_only %}<div class="card shadow-sm mt-4 border-warning"><div class="card-header bg-warning-subtle fw-bold">Refund Completed Order</div><div class="card-body"><p class="text-muted">A full refund restores the ordered quantities to inventory and marks this order as refunded.</p><form method="POST" action="/orders/{{ order.order_id }}/refund"><label class="form-label" for="refund-reason">Reason</label><input class="form-control mb-3" id="refund-reason" name="reason" value="Customer refund" maxlength="255" required><button type="submit" class="btn btn-warning" onclick="return confirm('Refund this completed order and restore its inventory?');">Issue full refund</button></form></div></div>{% endif %}
+            </div>
+        </div>
+    </main>
+    <script>const back=new URLSearchParams(window.location.search).get('back');if(back==='dashboard'){const link=document.getElementById('back-link');link.href='/dashboard';link.textContent='← System Dashboard';}</script>
+</body>
+</html>

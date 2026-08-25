@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - System Control Center</title>
+    <link href="/static/bootstrap.min.css?v=2" rel="stylesheet">
+    <style>
+        .dashboard-heading { max-width: 720px; }
+        .entity-summary { font-size: .95rem; }
+        .management-card { border: 0; }
+        .management-link {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-height: 92px;
+            text-align: left;
+            text-decoration: none;
+            transition: transform .15s ease, box-shadow .15s ease;
+        }
+        .management-link:hover,
+        .management-link:focus {
+            transform: translateY(-2px);
+            box-shadow: 0 .35rem .8rem rgba(0, 0, 0, .1);
+        }
+        .management-link .link-title { font-weight: 600; }
+        .management-link .link-description { font-size: .82rem; opacity: .8; }
+    </style>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-dark px-3 justify-content-between">
+        <a class="navbar-brand" href="#">System Control Center</a>
+        <div class="text-white">
+            <span>Welcome, <strong>{{ username }}</strong> <span class="badge bg-secondary">{{ role }}</span></span> |
+            <a href="/logout" class="btn btn-sm btn-danger ms-2">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container mt-5">
+        <div class="row mb-4">
+            <div class="col dashboard-heading">
+                <h2>Application Dashboard Matrix</h2>
+                <p class="text-muted">Real-time status overview of system data components.</p>
+                <div class="entity-summary text-muted">
+                    <span class="fw-semibold text-dark">Registered entities:</span>
+                    {% if entity_breakdown %}
+                        {% for item in entity_breakdown %}
+                            <span class="ms-2">{{ item.entity_type }} <span class="badge bg-primary rounded-pill">{{ item.qty }}</span></span>
+                        {% endfor %}
+                    {% else %}
+                        none yet
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card management-card shadow-sm mb-4">
+            <div class="card-body p-4">
+                <div class="mb-3">
+                    <h3 class="h5 mb-1">System management</h3>
+                    <p class="text-muted mb-0">Open a workspace to view or update your records.</p>
+                </div>
+                <div class="row g-3">
+                    <div class="col-sm-6 col-lg-4">
+                        <a href="/checkout" class="management-link btn btn-primary h-100 px-3 shadow-sm">
+                            <span class="link-title">New order</span>
+                            <span class="link-description">Start a checkout transaction</span>
+                        </a>
+                    </div>
+                    <div class="col-sm-6 col-lg-4">
+                        <a href="/orders-view" class="management-link btn btn-outline-info h-100 px-3">
+                            <span class="link-title">Orders</span>
+                            <span class="link-description">Review transactions and invoices</span>
+                        </a>
+                    </div>
+                    <div class="col-sm-6 col-lg-4">
+                        <a href="/products-view" class="management-link btn btn-outline-success h-100 px-3">
+                            <span class="link-title">Products</span>
+                            <span class="link-description">Manage inventory and stock</span>
+                        </a>
+                    </div>
+                    <div class="col-sm-6 col-lg-4">
+                        <a href="/entities-view" class="management-link btn btn-outline-primary h-100 px-3">
+                            <span class="link-title">Entities</span>
+                            <span class="link-description">View business and customer records</span>
+                        </a>
+                    </div>
+                    {% if role == "admin" %}
+                    <div class="col-sm-6 col-lg-4">
+                        <a href="/users-view" class="management-link btn btn-outline-dark h-100 px-3">
+                            <span class="link-title">Users and roles</span>
+                            <span class="link-description">Manage account access</span>
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-2">
+            <div class="col-12 mb-4">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                        <span class="fw-bold">Recent Orders</span>
+                        <a href="/orders-view" class="btn btn-sm btn-outline-info">View All Orders</a>
+                    </div>
+                    <div class="card-body p-0">
+                        {% if recent_orders %}
+                        <div class="list-group list-group-flush">
+                            {% for order in recent_orders %}
+                            <a href="/orders/{{ order.order_id }}?back=dashboard" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                <span>
+                                    <strong>Order #{{ order.order_id }}</strong>
+                                    <span class="text-muted ms-2">{{ order.customer_name }}</span>
+                                </span>
+                                <span class="text-end">
+                                    <span class="badge bg-secondary text-uppercase">{{ order.status }}</span>
+                                    <span class="ms-3 fw-bold">${{ order.order_total }}</span>
+                                </span>
+                            </a>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="text-muted p-3 mb-0">No orders have been created yet.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
