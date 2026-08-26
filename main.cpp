@@ -39,7 +39,7 @@ struct AppConfig {
     string templatesPath = "templates/";
     string staticPath = "static/";
 };
-
+//--------------------------------------------------------------------------------------------------
 static string trim(const string& value) {
     const string whitespace = " \t\r\n";
     const std::size_t first = value.find_first_not_of(whitespace);
@@ -47,7 +47,7 @@ static string trim(const string& value) {
     const std::size_t last = value.find_last_not_of(whitespace);
     return value.substr(first, last - first + 1);
 }
-
+//--------------------------------------------------------------------------------------------------
 AppConfig iniConfig(const string& iniPath = "Testhttplib.ini") {
     AppConfig config;
     std::ifstream file(iniPath);
@@ -57,16 +57,10 @@ AppConfig iniConfig(const string& iniPath = "Testhttplib.ini") {
         return config;
     }
 
-    string section;
     string line;
     while (std::getline(file, line)) {
         line = trim(line);
         if (line.empty() || line[0] == ';' || line[0] == '#') continue;
-
-        if (line.front() == '[' && line.back() == ']') {
-            section = trim(line.substr(1, line.size() - 2));
-            continue;
-        }
 
         const std::size_t separator = line.find('=');
         if (separator == string::npos) continue;
@@ -74,11 +68,11 @@ AppConfig iniConfig(const string& iniPath = "Testhttplib.ini") {
         const string key = trim(line.substr(0, separator));
         const string value = trim(line.substr(separator + 1));
 
-        if (section == "server" && key == "host") config.host = value;
-        else if (section == "server" && key == "port") config.port = std::stoi(value);
-        else if (section == "paths" && key == "database") config.databasePath = value;
-        else if (section == "paths" && key == "templates") config.templatesPath = value;
-        else if (section == "paths" && key == "static") config.staticPath = value;
+        if (key == "host") config.host = value;
+        else if (key == "port") config.port = std::stoi(value);
+        else if (key == "database") config.databasePath = value;
+        else if (key == "templates") config.templatesPath = value;
+        else if (key == "static") config.staticPath = value;
     }
 
     return config;
