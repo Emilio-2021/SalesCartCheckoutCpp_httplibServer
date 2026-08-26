@@ -15,22 +15,22 @@ Liteqry::Liteqry(const std::string& dbPath) : db_(nullptr) {
 Liteqry::~Liteqry() { if (db_) sqlite3_close(db_); }
 //--------------------------------------------------------------------------------------------------
 bool Liteqry::isOpen() const { return db_ != nullptr; }
-
+//--------------------------------------------------------------------------------------------------
 Liteqry::ResultSet::ResultSet() noexcept
     : statement_(nullptr), eof_(true), hasRow_(false) {}
-
+//--------------------------------------------------------------------------------------------------
 Liteqry::ResultSet::ResultSet(sqlite3_stmt* statement)
     : statement_(statement), eof_(false), hasRow_(false) {}
-
+//--------------------------------------------------------------------------------------------------
 Liteqry::ResultSet::~ResultSet() { close(); }
-
+//--------------------------------------------------------------------------------------------------
 Liteqry::ResultSet::ResultSet(ResultSet&& other) noexcept
     : statement_(other.statement_), eof_(other.eof_), hasRow_(other.hasRow_) {
     other.statement_ = nullptr;
     other.eof_ = true;
     other.hasRow_ = false;
 }
-
+//--------------------------------------------------------------------------------------------------
 Liteqry::ResultSet& Liteqry::ResultSet::operator=(ResultSet&& other) noexcept {
     if (this != &other) {
         close();
@@ -43,14 +43,14 @@ Liteqry::ResultSet& Liteqry::ResultSet::operator=(ResultSet&& other) noexcept {
     }
     return *this;
 }
-
+//--------------------------------------------------------------------------------------------------
 void Liteqry::ResultSet::close() noexcept {
     if (statement_) sqlite3_finalize(statement_);
     statement_ = nullptr;
     eof_ = true;
     hasRow_ = false;
 }
-
+//--------------------------------------------------------------------------------------------------
 bool Liteqry::ResultSet::next() {
     if (!statement_ || eof_) return false;
     const int result = sqlite3_step(statement_);
@@ -65,9 +65,9 @@ bool Liteqry::ResultSet::next() {
     }
     throw std::runtime_error("Could not read query result");
 }
-
+//--------------------------------------------------------------------------------------------------
 bool Liteqry::ResultSet::eof() const { return eof_; }
-
+//--------------------------------------------------------------------------------------------------
 int Liteqry::ResultSet::columnIndex(const std::string& name) const {
     if (!statement_) throw std::runtime_error("Result set is closed");
     for (int i = 0; i < sqlite3_column_count(statement_); ++i) {
@@ -75,7 +75,7 @@ int Liteqry::ResultSet::columnIndex(const std::string& name) const {
     }
     throw std::runtime_error("Column not found: " + name);
 }
-
+//--------------------------------------------------------------------------------------------------
 std::string Liteqry::ResultSet::fieldByIndex(int index) const {
     if (!hasRow_) throw std::runtime_error("Result set is not positioned on a row");
     if (index < 0 || index >= sqlite3_column_count(statement_))
@@ -83,16 +83,16 @@ std::string Liteqry::ResultSet::fieldByIndex(int index) const {
     const unsigned char* value = sqlite3_column_text(statement_, index);
     return value ? reinterpret_cast<const char*>(value) : "";
 }
-
+//--------------------------------------------------------------------------------------------------
 std::string Liteqry::ResultSet::at(const std::string& name) const {
     return fieldByIndex(columnIndex(name));
 }
-
+//--------------------------------------------------------------------------------------------------
 bool Liteqry::ResultSet::isNull(const std::string& name) const {
     if (!hasRow_) throw std::runtime_error("Result set is not positioned on a row");
     return sqlite3_column_type(statement_, columnIndex(name)) == SQLITE_NULL;
 }
-
+//--------------------------------------------------------------------------------------------------
 int Liteqry::ResultSet::columnCount() const {
     return statement_ ? sqlite3_column_count(statement_) : 0;
 }
