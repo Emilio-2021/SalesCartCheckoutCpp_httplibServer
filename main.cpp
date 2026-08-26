@@ -1,9 +1,9 @@
 //--------------------------------------------------------------------------------------------------
+#define _WIN32_WINNT 0x0A00
 #include <iostream>
 //using namespace std;
 using std::string;
 //--------------------------------------------------------------------------------------------------
-#define _WIN32_WINNT 0x0A00
 //#define CPPHTTPLIB_OPENSSL_SUPPORT
 #define CPPHTTPLIB_NO_OPENSSL
 //--------------------------------------------------------------------------------------------------
@@ -15,8 +15,14 @@ using std::string;
 #include "Liteqry.h"
 #include <fstream>
 #include <functional>
+#include <chrono>
+#include <iomanip>
+#include <mutex>
+#include <optional>
+#include <random>
 #include <stdexcept>
 #include <sstream>
+#include <unordered_map>
 #include <vector>
 // HTTPS
 //httplib::SSLServer svr;
@@ -40,12 +46,92 @@ struct AppConfig {
     string staticPath = "static/";
 };
 //--------------------------------------------------------------------------------------------------
+struct UserSession {
+    string userId;
+    string username;
+    string role;
+    std::chrono::steady_clock::time_point expiresAt;
+};
+
+using SessionStore = std::unordered_map<string, UserSession>;
+//--------------------------------------------------------------------------------------------------
 static string trim(const string& value) {
     const string whitespace = " \t\r\n";
     const std::size_t first = value.find_first_not_of(whitespace);
     if (first == string::npos) return "";
     const std::size_t last = value.find_last_not_of(whitespace);
     return value.substr(first, last - first + 1);
+}
+//--------------------------------------------------------------------------------------------------
+string createSessionId() {
+    static std::random_device randomDevice;
+    static std::mt19937_64 generator(randomDevice());
+    static std::mutex generatorMutex;
+    std::lock_guard<std::mutex> lock(generatorMutex);
+
+    std::ostringstream token;
+    for (int i = 0; i < 4; ++i) {
+        token << std::hex << std::setw(16) << std::setfill('0') << generator();
+    }
+    return token.str();
+}
+//--------------------------------------------------------------------------------------------------
+std::optional<string> getCookie(const httplib::Request& req, const string& name) {
+    const string cookieHeader = req.get_header_value("Cookie");
+    std::size_t start = 0;
+
+    while (start < cookieHeader.size()) {
+        const std::size_t end = cookieHeader.find(';', start);
+        const string item = trim(cookieHeader.substr(start, end - start));
+        const std::size_t separator = item.find('=');
+
+        if (separator != string::npos && trim(item.substr(0, separator)) == name) {
+            return trim(item.substr(separator + 1));
+        }
+
+        if (end == string::npos) break;
+        start = end + 1;
+    }
+
+    return std::nullopt;
+}
+//--------------------------------------------------------------------------------------------------
+std::optional<UserSession> getSession(const httplib::Request& req,
+                                      SessionStore& sessions,
+                                      std::mutex& sessionsMutex) {
+    const auto sessionId = getCookie(req, "scc_session");
+    if (!sessionId || sessionId->empty()) return std::nullopt;
+
+    std::lock_guard<std::mutex> lock(sessionsMutex);
+    const auto session = sessions.find(*sessionId);
+    if (session == sessions.end()) return std::nullopt;
+
+    if (session->second.expiresAt <= std::chrono::steady_clock::now()) {
+        sessions.erase(session);
+        return std::nullopt;
+    }
+
+    return session->second;
+}
+//--------------------------------------------------------------------------------------------------
+void clearSessionCookie(httplib::Response& res) {
+    res.set_header("Set-Cookie",
+                   "scc_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
+}
+//--------------------------------------------------------------------------------------------------
+bool requireSession(const httplib::Request& req,
+                    httplib::Response& res,
+                    SessionStore& sessions,
+                    std::mutex& sessionsMutex,
+                    UserSession& session) {
+    const auto authenticatedSession = getSession(req, sessions, sessionsMutex);
+    if (!authenticatedSession) {
+        res.set_redirect("/", 302);
+        return false;
+    }
+
+    session = *authenticatedSession;
+    return true;
 }
 //--------------------------------------------------------------------------------------------------
 AppConfig iniConfig(const string& iniPath = "Testhttplib.ini") {
@@ -114,15 +200,33 @@ void safeRoute(httplib::Server& svr, const string& path, std::function<void(cons
     }
 }
 //--------------------------------------------------------------------------------------------------
-int main() {
-    const AppConfig config = iniConfig();
+int main(int argc, char* argv[]) {
+    AppConfig config = iniConfig();
+
+	if (argc > 2) {
+		std::cerr << "Usage: Testhttplib [port]\n";
+		return 1;
+	}
+
+	if (argc > 1) {
+        const auto requested_port = std::strtol(argv[1], nullptr, 10);
+        if (requested_port < 1 || requested_port > 65535) {
+			std::cerr << "Invalid port: " << argv[1] << "\n";
+            return 1;
+        }
+        config.port = requested_port;
+    }
+
     httplib::Server svr;
+    SessionStore sessions;
+    std::mutex sessionsMutex;
+
     if (!svr.set_mount_point("/static", config.staticPath)) {
         throw std::runtime_error("Could not mount static directory");
     }
     inja::Environment env(config.templatesPath);
     // 1. Root login page (GET)
-    safeRoute(svr, "/", [&](const httplib::Request& req, httplib::Response& res) {
+    safeRoute(svr, "/", [&](const httplib::Request&, httplib::Response& res) {
         nlohmann::json data;
         data["error"] = "";
         string html = env.render_file("login.html", data);
@@ -135,10 +239,16 @@ int main() {
 
         Liteqry db(config.databasePath);
         auto result = db.query(
-            "SELECT password_hash FROM users WHERE username = ?;",
+            "SELECT id, username, role, password_hash FROM users WHERE username = ?;",
             {username});
+        string userId;
+        string storedUsername;
+        string role;
         string storedHash;
         if (result.next()) {
+            userId = result.at("id");
+            storedUsername = result.at("username");
+            role = result.at("role");
             storedHash = result.at("password_hash");
         }
 
@@ -148,6 +258,18 @@ int main() {
         }
 
         if (loginSuccess) {
+            const string sessionId = createSessionId();
+            {
+                std::lock_guard<std::mutex> lock(sessionsMutex);
+                sessions[sessionId] = {
+                    userId,
+                    storedUsername,
+                    role,
+                    std::chrono::steady_clock::now() + std::chrono::hours(8)};
+            }
+            res.set_header("Set-Cookie",
+                           "scc_session=" + sessionId +
+                           "; Path=/; Max-Age=28800; HttpOnly; SameSite=Lax");
             res.set_redirect("/dashboard", 302);
         } else {
             nlohmann::json errorData;
@@ -156,16 +278,25 @@ int main() {
             res.set_content(html, "text/html; charset=UTF-8");
         }
     }, true);
-    // 3. Dashboard page (GET)
+    // 3. Logout
+    safeRoute(svr, "/logout", [&](const httplib::Request& req, httplib::Response& res) {
+        const auto sessionId = getCookie(req, "scc_session");
+        if (sessionId) {
+            std::lock_guard<std::mutex> lock(sessionsMutex);
+            sessions.erase(*sessionId);
+        }
+        clearSessionCookie(res);
+        res.set_redirect("/", 302);
+    });
+    // 4. Dashboard page (GET)
     safeRoute(svr, "/dashboard", [&](const httplib::Request& req, httplib::Response& res) {
+        UserSession session;
+        if (!requireSession(req, res, sessions, sessionsMutex, session)) return;
+
         nlohmann::json data;
         data["error"] = "";
-
-        // The login route currently redirects without a session cookie, so use
-        // the optional query values when supplied and safe display defaults
-        // otherwise. These values are only used to render the dashboard.
-        data["username"] = req.has_param("username") ? req.get_param_value("username") : "Guest";
-        data["role"] = req.has_param("role") ? req.get_param_value("role") : "viewer";
+        data["username"] = session.username;
+        data["role"] = session.role;
 
         Liteqry db(config.databasePath);
         auto entityRows = db.query(
