@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your cart - SalesCartCheckout</title>
+    <link href="/static/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <header class="bg-dark py-3 mb-5">
+        <div class="container d-flex justify-content-between align-items-center">
+            <a class="text-white text-decoration-none fw-semibold fs-4" href="/store">SalesCartCheckout</a>
+            <a class="btn btn-outline-light btn-sm" href="/store">Continue shopping</a>
+            <span class="badge bg-primary">Cart: {{ item_count }}</span>
+        </div>
+    </header>
+
+    <main class="container pb-5">
+        <h1 class="mb-4">Your cart</h1>
+        {% if items|length == 0 %}
+        <div class="card shadow-sm border-0">
+            <div class="card-body text-center py-5">
+                <h2 class="h4">Your cart is empty</h2>
+                <p class="text-muted">Browse the store to find something you like.</p>
+                <a class="btn btn-primary" href="/store">Browse products</a>
+            </div>
+        </div>
+        {% else %}
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body p-0">
+                        {% for item in items %}
+                        <div class="p-4 {% if not loop.is_last %}border-bottom{% endif %}">
+                            <div class="d-flex flex-wrap justify-content-between gap-3">
+                                <div>
+                                    <h2 class="h5 mb-1">{{ item.name }}</h2>
+                                    <p class="text-muted small mb-2">SKU: <code>{{ item.sku }}</code></p>
+                                    <span class="text-muted">${{ item.price }} each</span>
+                                </div>
+                                <div class="text-end">
+                                    <strong class="d-block mb-2">${{ item.line_total }}</strong>
+                                    <form action="/cart/update" method="POST" class="d-inline-flex gap-2 align-items-center">
+                                        <input type="hidden" name="product_id" value="{{ item.id }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                        <label class="visually-hidden" for="quantity-{{ item.id }}">Quantity</label>
+                                        <input class="form-control form-control-sm" id="quantity-{{ item.id }}" name="quantity" type="number" min="1" max="{{ item.stock_quantity }}" value="{{ item.quantity }}" style="width: 82px">
+                                        <button class="btn btn-sm btn-outline-primary" type="submit">Update</button>
+                                    </form>
+                                    <form action="/cart/remove" method="POST" class="d-inline">
+                                        <input type="hidden" name="product_id" value="{{ item.id }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                        <button class="btn btn-sm btn-outline-danger" type="submit">Remove</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body p-4">
+                        <h2 class="h5">Order summary</h2>
+                        <div class="d-flex justify-content-between mb-2"><span>Items</span><span>{{ item_count }}</span></div>
+                        <div class="d-flex justify-content-between border-top pt-3 mt-3"><strong>Subtotal</strong><strong>${{ subtotal }}</strong></div>
+                        <button class="btn btn-primary w-100 mt-4" type="button" disabled>Checkout coming next</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </main>
+</body>
+</html>

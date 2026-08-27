@@ -24,6 +24,7 @@ using std::string;
 #include <random>
 #include <stdexcept>
 #include <sstream>
+#include <unordered_map>
 #include <vector>
 // HTTPS
 //httplib::SSLServer svr;
@@ -123,6 +124,77 @@ private:
     string databasePath_;
     std::mutex mutex_;
 };
+
+struct CartSnapshot {
+    string csrfToken;
+    std::unordered_map<int, int> quantities;
+};
+
+class CartStore {
+public:
+    CartSnapshot getOrCreate(const string& cartId) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto found = carts_.find(cartId);
+        if (found != carts_.end()) return found->second;
+
+        CartSnapshot cart;
+        cart.csrfToken = createSessionId();
+        carts_[cartId] = cart;
+        return cart;
+    }
+
+    bool hasValidCsrf(const string& cartId, const string& csrfToken) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto found = carts_.find(cartId);
+        return found != carts_.end() && !csrfToken.empty() &&
+               found->second.csrfToken == csrfToken;
+    }
+
+    void setQuantity(const string& cartId, int productId, int quantity) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        carts_[cartId].quantities[productId] = quantity;
+    }
+
+    void remove(const string& cartId, int productId) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto found = carts_.find(cartId);
+        if (found != carts_.end()) found->second.quantities.erase(productId);
+    }
+
+private:
+    std::unordered_map<string, CartSnapshot> carts_;
+    std::mutex mutex_;
+};
+
+struct CartContext {
+    string id;
+    CartSnapshot snapshot;
+};
+
+std::optional<string> getCookie(const httplib::Request& req, const string& name);
+
+CartContext getCartContext(const httplib::Request& req,
+                           httplib::Response& res,
+                           CartStore& carts) {
+    const auto existingId = getCookie(req, "scc_cart");
+    const string cartId = existingId && !existingId->empty() ? *existingId : createSessionId();
+    if (!existingId || existingId->empty()) {
+        res.set_header("Set-Cookie",
+                       "scc_cart=" + cartId + "; Path=/; HttpOnly; SameSite=Lax");
+    }
+    return CartContext{cartId, carts.getOrCreate(cartId)};
+}
+
+bool requireCartCsrf(const httplib::Request& req,
+                     httplib::Response& res,
+                     CartStore& carts,
+                     const string& cartId) {
+    if (carts.hasValidCsrf(cartId, req.get_param_value("csrf_token"))) return true;
+
+    res.status = 403;
+    res.set_content("Invalid CSRF token", "text/plain; charset=UTF-8");
+    return false;
+}
 //--------------------------------------------------------------------------------------------------
 static string trim(const string& value) {
     const string whitespace = " \t\r\n";
@@ -367,6 +439,7 @@ int main(int argc, char* argv[]) {
     httplib::Server svr;
     SessionStore sessions(config.databasePath);
     sessions.initialize();
+    CartStore carts;
     std::mutex sessionsMutex;
 
     if (!svr.set_mount_point("/static", config.staticPath)) {
@@ -380,7 +453,176 @@ int main(int argc, char* argv[]) {
         string html = env.render_file("login.html", data);
         res.set_content(html, "text/html; charset=UTF-8");
     });
-    // 2. Login handler (POST) - Notice the 'true' at the end for POST requests!
+
+    // 2. Customer storefront (GET; public)
+    safeRoute(svr, "/store", [&](const httplib::Request& req, httplib::Response& res) {
+        const CartContext cart = getCartContext(req, res, carts);
+        Liteqry db(config.databasePath);
+        auto rows = db.query(
+            "SELECT id, name, sku, printf('%.2f', price) AS price, stock_quantity "
+            "FROM products ORDER BY name ASC, id ASC;");
+
+        nlohmann::json data;
+        data["products"] = nlohmann::json::array();
+        while (rows.next()) {
+            nlohmann::json product;
+            product["id"] = rows.at("id");
+            product["name"] = rows.at("name");
+            product["sku"] = rows.at("sku");
+            product["price"] = rows.at("price");
+            product["stock_quantity"] = rows.at("stock_quantity");
+            product["in_stock"] = rows.at("stock_quantity") != "0";
+            data["products"].push_back(product);
+        }
+        data["product_count"] = data["products"].size();
+        data["csrf_token"] = cart.snapshot.csrfToken;
+        int cartItemCount = 0;
+        for (const auto& entry : cart.snapshot.quantities) cartItemCount += entry.second;
+        data["cart_item_count"] = cartItemCount;
+
+        string html = env.render_file("store.html", data);
+        res.set_content(html, "text/html; charset=UTF-8");
+    });
+
+    // 3. View the customer cart (GET; public)
+    safeRoute(svr, "/cart", [&](const httplib::Request& req, httplib::Response& res) {
+        const CartContext cart = getCartContext(req, res, carts);
+        Liteqry db(config.databasePath);
+        nlohmann::json data;
+        data["items"] = nlohmann::json::array();
+        data["item_count"] = 0;
+        data["subtotal"] = "0.00";
+        data["csrf_token"] = cart.snapshot.csrfToken;
+
+        long long itemCount = 0;
+        double subtotal = 0.0;
+        for (const auto& entry : cart.snapshot.quantities) {
+            auto product = db.query(
+                "SELECT id, name, sku, printf('%.2f', price) AS price, stock_quantity "
+                "FROM products WHERE id = ?;", {std::to_string(entry.first)});
+            if (!product.next()) continue;
+
+            const int quantity = entry.second;
+            const double price = std::stod(product.at("price"));
+            nlohmann::json item;
+            item["id"] = product.at("id");
+            item["name"] = product.at("name");
+            item["sku"] = product.at("sku");
+            item["price"] = product.at("price");
+            item["quantity"] = quantity;
+            item["stock_quantity"] = product.at("stock_quantity");
+            item["line_total"] = [&]() {
+                std::ostringstream total;
+                total << std::fixed << std::setprecision(2) << price * quantity;
+                return total.str();
+            }();
+            data["items"].push_back(item);
+            itemCount += quantity;
+            subtotal += price * quantity;
+        }
+
+        std::ostringstream formattedSubtotal;
+        formattedSubtotal << std::fixed << std::setprecision(2) << subtotal;
+        data["item_count"] = itemCount;
+        data["subtotal"] = formattedSubtotal.str();
+
+        string html = env.render_file("cart.html", data);
+        res.set_content(html, "text/html; charset=UTF-8");
+    });
+
+    // 4. Add a product to the customer cart (POST; public with CSRF)
+    safeRoute(svr, "/cart/add", [&](const httplib::Request& req, httplib::Response& res) {
+        const CartContext cart = getCartContext(req, res, carts);
+        if (!requireCartCsrf(req, res, carts, cart.id)) return;
+
+        int productId = 0;
+        int quantity = 0;
+        if (!parseInteger(req.get_param_value("product_id"), productId, 1) ||
+            !parseInteger(req.get_param_value("quantity"), quantity, 1)) {
+            res.status = 400;
+            res.set_content("Invalid cart item", "text/plain; charset=UTF-8");
+            return;
+        }
+
+        Liteqry db(config.databasePath);
+        auto product = db.query(
+            "SELECT stock_quantity FROM products WHERE id = ?;",
+            {std::to_string(productId)});
+        if (!product.next()) {
+            res.status = 404;
+            res.set_content("Product not found", "text/plain; charset=UTF-8");
+            return;
+        }
+
+        int stock = 0;
+        if (!parseInteger(product.at("stock_quantity"), stock, 0)) {
+            res.status = 500;
+            res.set_content("Invalid product stock", "text/plain; charset=UTF-8");
+            return;
+        }
+        const auto existing = cart.snapshot.quantities.find(productId);
+        const long long requested = (existing == cart.snapshot.quantities.end() ? 0 : existing->second) + quantity;
+        if (requested > stock) {
+            res.status = 409;
+            res.set_content("Requested quantity exceeds available stock", "text/plain; charset=UTF-8");
+            return;
+        }
+
+        carts.setQuantity(cart.id, productId, static_cast<int>(requested));
+        res.set_redirect("/store", 303);
+    }, true);
+
+    // 5. Update a customer cart item (POST; public with CSRF)
+    safeRoute(svr, "/cart/update", [&](const httplib::Request& req, httplib::Response& res) {
+        const CartContext cart = getCartContext(req, res, carts);
+        if (!requireCartCsrf(req, res, carts, cart.id)) return;
+
+        int productId = 0;
+        int quantity = 0;
+        if (!parseInteger(req.get_param_value("product_id"), productId, 1) ||
+            !parseInteger(req.get_param_value("quantity"), quantity, 1)) {
+            res.status = 400;
+            res.set_content("Invalid cart item", "text/plain; charset=UTF-8");
+            return;
+        }
+
+        Liteqry db(config.databasePath);
+        auto product = db.query(
+            "SELECT stock_quantity FROM products WHERE id = ?;",
+            {std::to_string(productId)});
+        int stock = 0;
+        if (!product.next() || !parseInteger(product.at("stock_quantity"), stock, 0)) {
+            res.status = 404;
+            res.set_content("Product not found", "text/plain; charset=UTF-8");
+            return;
+        }
+        if (quantity > stock) {
+            res.status = 409;
+            res.set_content("Requested quantity exceeds available stock", "text/plain; charset=UTF-8");
+            return;
+        }
+
+        carts.setQuantity(cart.id, productId, quantity);
+        res.set_redirect("/cart", 303);
+    }, true);
+
+    // 6. Remove a customer cart item (POST; public with CSRF)
+    safeRoute(svr, "/cart/remove", [&](const httplib::Request& req, httplib::Response& res) {
+        const CartContext cart = getCartContext(req, res, carts);
+        if (!requireCartCsrf(req, res, carts, cart.id)) return;
+
+        int productId = 0;
+        if (!parseInteger(req.get_param_value("product_id"), productId, 1)) {
+            res.status = 400;
+            res.set_content("Invalid product ID", "text/plain; charset=UTF-8");
+            return;
+        }
+
+        carts.remove(cart.id, productId);
+        res.set_redirect("/cart", 303);
+    }, true);
+
+    // 7. Login handler (POST) - Notice the 'true' at the end for POST requests!
     safeRoute(svr, "/login", [&](const httplib::Request& req, httplib::Response& res) {
         string username = req.get_param_value("username");
         string password = req.get_param_value("password");
