@@ -34,15 +34,15 @@
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                             <div class="mb-3">
                                 <label class="form-label" for="customer-name">Full name</label>
-                                <input class="form-control" id="customer-name" name="customer_name" type="text" maxlength="150" required>
+                                <input class="form-control" id="customer-name" name="customer_name" type="text" maxlength="150" value="{{ customer_name }}" required>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label" for="customer-email">Email address</label>
-                                <input class="form-control" id="customer-email" name="customer_email" type="email" maxlength="150" required>
+                                <input class="form-control" id="customer-email" name="customer_email" type="email" maxlength="150" value="{{ customer_email }}" required>
                             </div>
                             <div class="mb-4">
                                 <label class="form-label" for="shipping-address">Shipping address</label>
-                                <textarea class="form-control" id="shipping-address" name="shipping_address" rows="3" maxlength="300" required></textarea>
+                                <textarea class="form-control" id="shipping-address" name="shipping_address" rows="3" maxlength="300" required>{{ shipping_address }}</textarea>
                             </div>
                             <button class="btn btn-primary w-100" type="submit" {% if not can_checkout %}disabled{% endif %}>Continue to simulated payment</button>
                         </form>

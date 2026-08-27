@@ -536,6 +536,16 @@ int main(int argc, char* argv[]) {
         nlohmann::json data;
         data["items"] = nlohmann::json::array();
         data["csrf_token"] = cart.snapshot.csrfToken;
+        data["customer_name"] = "";
+        data["customer_email"] = "";
+        data["shipping_address"] = "";
+        const auto signedInCustomer = getSession(req, sessions, sessionsMutex);
+        if (signedInCustomer && signedInCustomer->role == "customer") {
+            data["customer_name"] = signedInCustomer->username;
+            auto customer = db.query("SELECT email FROM users WHERE id = ?;",
+                                     {signedInCustomer->userId});
+            if (customer.next()) data["customer_email"] = customer.at("email");
+        }
         double subtotal = 0.0;
         int itemCount = 0;
         bool canCheckout = true;
@@ -1152,12 +1162,13 @@ int main(int argc, char* argv[]) {
         data["order"]["created_at"] = orderRows.at("created_at");
         data["order"]["order_total"] = orderRows.at("order_total");
         data["items"] = nlohmann::json::array();
-        data["back_url"] = "/orders-view";
+        data["back_url"] = session.role == "customer" ? "/my-orders" : "/orders-view";
         data["back_label"] = "← All orders";
         data["username"] = session.username;
         data["role"] = session.role;
         data["csrf_token"] = session.csrfToken;
         data["read_only"] = session.role == "viewer";
+        data["can_refund"] = session.role == "manager" || session.role == "admin";
 
         auto itemRows = db.query(
             "SELECT p.name AS product_name, p.sku, oi.quantity, "

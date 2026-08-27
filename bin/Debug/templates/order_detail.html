@@ -8,7 +8,7 @@
 </head>
 <body class="bg-light">
     <nav class="navbar navbar-dark bg-dark px-3 justify-content-between mb-4">
-        <a class="navbar-brand" href="/dashboard">← System Control Center</a>
+        <a class="navbar-brand" href="{% if role == "customer" %}/store{% else %}/dashboard{% endif %}">← System Control Center</a>
         <span class="text-white">{{ username }} <span class="badge bg-secondary">{{ role }}</span> <a href="/logout" class="btn btn-sm btn-danger ms-2">Logout</a></span>
     </nav>
     <main class="container">
@@ -31,11 +31,11 @@
                     {% for item in items %}<tr><td class="ps-3">{{ item.product_name }}</td><td><code>{{ item.sku }}</code></td><td>{{ item.quantity }}</td><td class="text-end">${{ item.unit_price }}</td><td class="text-end pe-3 fw-bold">${{ item.row_total }}</td></tr>{% endfor %}
                     </tbody></table></div><div class="text-end p-3 border-top"><strong>Invoice total: ${{ order.order_total }}</strong></div>
                 </div></div>
-                {% if order.status == "COMPLETED" and not read_only %}<div class="card shadow-sm mt-4 border-warning"><div class="card-header bg-warning-subtle fw-bold">Refund Completed Order</div><div class="card-body"><p class="text-muted">A full refund restores the ordered quantities to inventory and marks this order as refunded.</p><form method="POST" action="/orders/{{ order.order_id }}/refund"><label class="form-label" for="refund-reason">Reason</label><input class="form-control mb-3" id="refund-reason" name="reason" value="Customer refund" maxlength="255" required><button type="submit" class="btn btn-warning" onclick="return confirm('Refund this completed order and restore its inventory?');">Issue full refund</button></form></div></div>{% endif %}
+                {% if order.status == "COMPLETED" and can_refund %}<div class="card shadow-sm mt-4 border-warning"><div class="card-header bg-warning-subtle fw-bold">Refund Completed Order</div><div class="card-body"><p class="text-muted">A full refund restores the ordered quantities to inventory and marks this order as refunded.</p><form method="POST" action="/orders/{{ order.order_id }}/refund"><label class="form-label" for="refund-reason">Reason</label><input class="form-control mb-3" id="refund-reason" name="reason" value="Customer refund" maxlength="255" required><button type="submit" class="btn btn-warning" onclick="return confirm('Refund this completed order and restore its inventory?');">Issue full refund</button></form></div></div>{% endif %}
             </div>
         </div>
     </main>
-    <script>const back=new URLSearchParams(window.location.search).get('back');if(back==='dashboard'){const link=document.getElementById('back-link');link.href='/dashboard';link.textContent='← System Dashboard';}</script>
+    <script>const back=new URLSearchParams(window.location.search).get("back");const link=document.getElementById("back-link");{% if role == "customer" %}link.href="/my-orders";link.textContent="Back to my orders";{% else %}if(back==="dashboard"){link.href="/dashboard";link.textContent="Back to system dashboard";}{% endif %}</script>
 </body>
 <script>document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('form[method="POST"]').forEach(function(form){const token=document.createElement('input');token.type='hidden';token.name='csrf_token';token.value='{{ csrf_token }}';form.appendChild(token);});});</script>
 </html>
