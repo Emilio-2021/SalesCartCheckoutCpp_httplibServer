@@ -10,6 +10,7 @@ Liteqry::Liteqry(const std::string& dbPath) : db_(nullptr) {
         db_ = nullptr;
         throw std::runtime_error("Could not open database: " + message);
     }
+    sqlite3_busy_timeout(db_, 5000);
 }
 //--------------------------------------------------------------------------------------------------
 Liteqry::~Liteqry() { if (db_) sqlite3_close(db_); }
