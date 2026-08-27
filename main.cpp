@@ -333,15 +333,20 @@ int main(int argc, char* argv[]) {
         throw std::runtime_error("Could not mount static directory");
     }
     inja::Environment env(config.templatesPath);
-    // 1. Root login page (GET)
+    // 1. Public storefront entry point
     safeRoute(svr, "/", [&](const httplib::Request&, httplib::Response& res) {
+        res.set_redirect("/store", 302);
+    });
+
+    // 2. Login page (GET)
+    safeRoute(svr, "/login", [&](const httplib::Request&, httplib::Response& res) {
         nlohmann::json data;
         data["error"] = "";
         string html = env.render_file("login.html", data);
         res.set_content(html, "text/html; charset=UTF-8");
     });
 
-    // 2. Customer storefront (GET; public)
+    // 3. Customer storefront (GET; public)
     safeRoute(svr, "/store", [&](const httplib::Request& req, httplib::Response& res) {
         const CartContext cart = getCartContext(req, res, carts);
         Liteqry db(config.databasePath);

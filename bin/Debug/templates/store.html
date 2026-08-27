@@ -20,7 +20,7 @@
             <a class="text-white text-decoration-none fw-semibold fs-4" href="/store">SalesCartCheckout</a>
             <div class="d-flex gap-2">
                 <a class="btn btn-outline-light btn-sm" href="/cart">Cart <span id="cart-count" class="badge bg-primary ms-1">{{ cart_item_count }}</span> <span id="cart-subtotal" class="small">${{ cart_subtotal }}</span></a>
-                {% if is_customer %}<a class="btn btn-outline-light btn-sm" href="/my-orders">My orders</a><a class="btn btn-outline-light btn-sm" href="/logout">Sign out</a>{% else %}<a class="btn btn-outline-light btn-sm" href="/">Sign in</a>{% endif %}
+                {% if is_customer %}<a class="btn btn-outline-light btn-sm" href="/my-orders">My orders</a><a class="btn btn-outline-light btn-sm" href="/logout">Sign out</a>{% else %}<a class="btn btn-outline-light btn-sm" href="/login">Sign in</a>{% endif %}
             </div>
         </div>
     </header>
