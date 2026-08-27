@@ -131,3 +131,7 @@ User accounts are created by an administrator through **Dashboard → Users and 
 This repository is a functional local proof of concept. It is suitable for demonstrating application architecture, role-based access, transactional persistence, and customer checkout UX. It is not a production payment service.
 
 Potential production extensions would include HTTPS, secure deployment configuration, persistent carts, email receipts, a hosted payment provider, automated integration tests, and customer profile address management.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
