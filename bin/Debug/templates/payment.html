@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulated payment - SalesCartCheckout</title>
+    <link href="/static/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <header class="bg-dark py-3 mb-5">
+        <div class="container d-flex justify-content-between align-items-center">
+            <a class="text-white text-decoration-none fw-semibold fs-4" href="/store">SalesCartCheckout</a>
+            <span class="badge bg-warning text-dark">Demo payment</span>
+        </div>
+    </header>
+    <main class="container pb-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-7">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body p-4 p-md-5">
+                        <p class="text-uppercase text-primary fw-semibold small mb-2">Step 2 of 2</p>
+                        <h1 class="h3">Simulated payment</h1>
+                        <p class="text-muted">This is a safe demonstration. No card information is requested or stored.</p>
+                        <div class="alert alert-info"><strong>Order total: ${{ subtotal }}</strong><br><span class="small">Customer: {{ customer_name }} ({{ customer_email }})</span></div>
+                        <form action="/checkout/payment" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="customer_name" value="{{ customer_name }}">
+                            <input type="hidden" name="customer_email" value="{{ customer_email }}">
+                            <input type="hidden" name="shipping_address" value="{{ shipping_address }}">
+                            <fieldset class="mb-4">
+                                <legend class="h6">Choose a test outcome</legend>
+                                <div class="form-check mb-2"><input class="form-check-input" id="payment-success" type="radio" name="payment_outcome" value="success" checked><label class="form-check-label" for="payment-success">Successful payment</label></div>
+                                <div class="form-check"><input class="form-check-input" id="payment-failure" type="radio" name="payment_outcome" value="failure"><label class="form-check-label" for="payment-failure">Failed payment</label></div>
+                            </fieldset>
+                            <button class="btn btn-primary w-100" type="submit">Run payment simulation</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

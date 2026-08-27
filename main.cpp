@@ -311,6 +311,14 @@ int main(int argc, char* argv[]) {
     CartStore carts;
     std::mutex sessionsMutex;
 
+    {
+        Liteqry db(config.databasePath);
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS payments ("
+            "id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL, "
+            "status VARCHAR(30) NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);");
+    }
+
     if (!svr.set_mount_point("/static", config.staticPath)) {
         throw std::runtime_error("Could not mount static directory");
     }
@@ -499,7 +507,229 @@ int main(int argc, char* argv[]) {
         res.set_redirect("/cart", 303);
     }, true);
 
-    // 7. Login handler (POST) - Notice the 'true' at the end for POST requests!
+    // 7. Customer checkout review (GET; public)
+    safeRoute(svr, "/checkout", [&](const httplib::Request& req, httplib::Response& res) {
+        const CartContext cart = getCartContext(req, res, carts);
+        if (cart.snapshot.quantities.empty()) {
+            res.set_redirect("/cart", 303);
+            return;
+        }
+
+        Liteqry db(config.databasePath);
+        nlohmann::json data;
+        data["items"] = nlohmann::json::array();
+        data["csrf_token"] = cart.snapshot.csrfToken;
+        double subtotal = 0.0;
+        int itemCount = 0;
+        bool canCheckout = true;
+        for (const auto& entry : cart.snapshot.quantities) {
+            auto product = db.query(
+                "SELECT id, name, sku, printf('%.2f', price) AS price, stock_quantity "
+                "FROM products WHERE id = ?;", {std::to_string(entry.first)});
+            if (!product.next()) {
+                canCheckout = false;
+                continue;
+            }
+
+            const int quantity = entry.second;
+            int stock = 0;
+            parseInteger(product.at("stock_quantity"), stock, 0);
+            const double price = std::stod(product.at("price"));
+            nlohmann::json item;
+            item["name"] = product.at("name");
+            item["sku"] = product.at("sku");
+            item["price"] = product.at("price");
+            item["quantity"] = quantity;
+            item["line_total"] = [&]() {
+                std::ostringstream total;
+                total << std::fixed << std::setprecision(2) << price * quantity;
+                return total.str();
+            }();
+            item["stock_ok"] = quantity <= stock;
+            if (quantity > stock) canCheckout = false;
+            data["items"].push_back(item);
+            subtotal += price * quantity;
+            itemCount += quantity;
+        }
+
+        std::ostringstream formattedSubtotal;
+        formattedSubtotal << std::fixed << std::setprecision(2) << subtotal;
+        data["subtotal"] = formattedSubtotal.str();
+        data["item_count"] = itemCount;
+        data["can_checkout"] = canCheckout && !data["items"].empty();
+
+        string html = env.render_file("checkout_review.html", data);
+        res.set_content(html, "text/html; charset=UTF-8");
+    });
+
+    // 8. Validate checkout details and show simulated payment (POST; public with CSRF)
+    safeRoute(svr, "/checkout/submit", [&](const httplib::Request& req, httplib::Response& res) {
+        const CartContext cart = getCartContext(req, res, carts);
+        if (!requireCartCsrf(req, res, carts, cart.id)) return;
+
+        const string customerName = trim(req.get_param_value("customer_name"));
+        const string customerEmail = trim(req.get_param_value("customer_email"));
+        const string shippingAddress = trim(req.get_param_value("shipping_address"));
+        const std::size_t at = customerEmail.find('@');
+        const bool validEmail = at != string::npos && at > 0 &&
+                                customerEmail.find('.', at + 1) != string::npos;
+        if (customerName.empty() || customerName.size() > 150 ||
+            !validEmail || customerEmail.size() > 150 ||
+            shippingAddress.empty() || shippingAddress.size() > 300) {
+            res.status = 400;
+            res.set_content("Please provide valid customer information", "text/plain; charset=UTF-8");
+            return;
+        }
+
+        Liteqry db(config.databasePath);
+        nlohmann::json data;
+        data["customer_name"] = customerName;
+        data["customer_email"] = customerEmail;
+        data["shipping_address"] = shippingAddress;
+        data["csrf_token"] = cart.snapshot.csrfToken;
+        data["items"] = nlohmann::json::array();
+        double subtotal = 0.0;
+        for (const auto& entry : cart.snapshot.quantities) {
+            auto product = db.query(
+                "SELECT name, printf('%.2f', price) AS price, stock_quantity "
+                "FROM products WHERE id = ?;", {std::to_string(entry.first)});
+            int stock = 0;
+            if (!product.next() || !parseInteger(product.at("stock_quantity"), stock, 0) ||
+                entry.second > stock) {
+                res.status = 409;
+                res.set_content("Cart stock has changed. Please review your cart.", "text/plain; charset=UTF-8");
+                return;
+            }
+
+            const double price = std::stod(product.at("price"));
+            nlohmann::json item;
+            item["name"] = product.at("name");
+            item["price"] = product.at("price");
+            item["quantity"] = entry.second;
+            data["items"].push_back(item);
+            subtotal += price * entry.second;
+        }
+
+        std::ostringstream formattedSubtotal;
+        formattedSubtotal << std::fixed << std::setprecision(2) << subtotal;
+        data["subtotal"] = formattedSubtotal.str();
+        string html = env.render_file("payment.html", data);
+        res.set_content(html, "text/html; charset=UTF-8");
+    }, true);
+
+    // 9. Simulate payment success or failure (POST; public with CSRF)
+    safeRoute(svr, "/checkout/payment", [&](const httplib::Request& req, httplib::Response& res) {
+        const CartContext cart = getCartContext(req, res, carts);
+        if (!requireCartCsrf(req, res, carts, cart.id)) return;
+
+        const string customerName = trim(req.get_param_value("customer_name"));
+        const string customerEmail = trim(req.get_param_value("customer_email"));
+        const string shippingAddress = trim(req.get_param_value("shipping_address"));
+        const std::size_t at = customerEmail.find('@');
+        const bool validEmail = at != string::npos && at > 0 &&
+                                customerEmail.find('.', at + 1) != string::npos;
+        if (customerName.empty() || customerName.size() > 150 ||
+            !validEmail || customerEmail.size() > 150 ||
+            shippingAddress.empty() || shippingAddress.size() > 300) {
+            res.status = 400;
+            res.set_content("Please provide valid customer information", "text/plain; charset=UTF-8");
+            return;
+        }
+
+        const string paymentOutcome = req.get_param_value("payment_outcome");
+        if (paymentOutcome != "success" && paymentOutcome != "failure") {
+            res.status = 400;
+            res.set_content("Invalid simulated payment outcome", "text/plain; charset=UTF-8");
+            return;
+        }
+
+        Liteqry db(config.databasePath);
+        for (const auto& entry : cart.snapshot.quantities) {
+            auto product = db.query(
+                "SELECT stock_quantity FROM products WHERE id = ?;",
+                {std::to_string(entry.first)});
+            int stock = 0;
+            if (!product.next() || !parseInteger(product.at("stock_quantity"), stock, 0) ||
+                entry.second > stock) {
+                res.status = 409;
+                res.set_content("Cart stock has changed. Please review your cart.", "text/plain; charset=UTF-8");
+                return;
+            }
+        }
+
+        nlohmann::json data;
+        data["success"] = paymentOutcome == "success";
+        data["payment_status"] = data["success"] ? "SIMULATED_PAID" : "SIMULATED_FAILED";
+        data["csrf_token"] = cart.snapshot.csrfToken;
+
+        if (paymentOutcome == "success") {
+            string orderId;
+            try {
+                db.execute("BEGIN IMMEDIATE TRANSACTION;");
+                db.execute(
+                    "INSERT INTO entities (entity_type, name, email) VALUES (1, ?, ?);",
+                    {customerName, customerEmail});
+
+                string entityId;
+                {
+                    auto entity = db.query("SELECT last_insert_rowid() AS id;");
+                    if (!entity.next()) throw std::runtime_error("Could not create customer");
+                    entityId = entity.at("id");
+                }
+
+                db.execute(
+                    "INSERT INTO orders (entity_id, user_id, status) VALUES (?, NULL, 'COMPLETED');",
+                    {entityId});
+                {
+                    auto order = db.query("SELECT last_insert_rowid() AS id;");
+                    if (!order.next()) throw std::runtime_error("Could not create order");
+                    orderId = order.at("id");
+                }
+
+                for (const auto& entry : cart.snapshot.quantities) {
+                    string unitPrice;
+                    {
+                        auto product = db.query(
+                            "SELECT printf('%.2f', price) AS price FROM products WHERE id = ?;",
+                            {std::to_string(entry.first)});
+                        if (!product.next()) throw std::runtime_error("Product no longer exists");
+                        unitPrice = product.at("price");
+                    }
+
+                    if (db.execute(
+                            "UPDATE products SET stock_quantity = stock_quantity - ? "
+                            "WHERE id = ? AND stock_quantity >= ?;",
+                            {std::to_string(entry.second), std::to_string(entry.first),
+                             std::to_string(entry.second)}) != 1) {
+                        throw std::runtime_error("Product stock changed during checkout");
+                    }
+                    db.execute(
+                        "INSERT INTO order_items (order_id, product_id, quantity, unit_price) "
+                        "VALUES (?, ?, ?, ?);",
+                        {orderId, std::to_string(entry.first), std::to_string(entry.second), unitPrice});
+                }
+
+                db.execute(
+                    "INSERT INTO payments (order_id, status) VALUES (?, 'SIMULATED_PAID');",
+                    {orderId});
+                db.execute("COMMIT;");
+            } catch (...) {
+                try { db.execute("ROLLBACK;"); } catch (...) {}
+                res.status = 409;
+                res.set_content("Could not complete the order. Please review your cart and try again.",
+                                "text/plain; charset=UTF-8");
+                return;
+            }
+
+            carts.clear(cart.id);
+            data["order_id"] = orderId;
+        }
+
+        string html = env.render_file("payment_result.html", data);
+        res.set_content(html, "text/html; charset=UTF-8");
+    }, true);
+
+    // 10. Login handler (POST) - Notice the 'true' at the end for POST requests!
     safeRoute(svr, "/login", [&](const httplib::Request& req, httplib::Response& res) {
         string username = req.get_param_value("username");
         string password = req.get_param_value("password");
@@ -807,8 +1037,8 @@ int main(int argc, char* argv[]) {
         res.set_content(html, "text/html; charset=UTF-8");
     });
 
-    // 9. Checkout page (GET; all authenticated roles may view)
-    safeRoute(svr, "/checkout", [&](const httplib::Request& req, httplib::Response& res) {
+    // 10. Internal checkout page (GET; all authenticated roles may view)
+    safeRoute(svr, "/admin/checkout", [&](const httplib::Request& req, httplib::Response& res) {
         UserSession session;
         if (!requireSession(req, res, sessions, sessionsMutex, session)) return;
 
@@ -848,7 +1078,7 @@ int main(int argc, char* argv[]) {
     });
 
     // 10. Create order (POST; operators and administrators only)
-    safeRoute(svr, "/checkout/create", [&](const httplib::Request& req, httplib::Response& res) {
+    safeRoute(svr, "/admin/checkout/create", [&](const httplib::Request& req, httplib::Response& res) {
         UserSession session;
         if (!requireSession(req, res, sessions, sessionsMutex, session)) return;
         if (!requireRole(session, res, {"operator", "admin"}) ||

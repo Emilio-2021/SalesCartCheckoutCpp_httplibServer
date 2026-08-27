@@ -15,6 +15,7 @@ public:
     bool hasValidCsrf(const std::string& cartId, const std::string& csrfToken);
     void setQuantity(const std::string& cartId, int productId, int quantity);
     void remove(const std::string& cartId, int productId);
+    void clear(const std::string& cartId);
 
 private:
     std::unordered_map<std::string, CartSnapshot> carts_;

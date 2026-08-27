@@ -30,3 +30,9 @@ void CartStore::remove(const std::string& cartId, int productId) {
     const auto found = carts_.find(cartId);
     if (found != carts_.end()) found->second.quantities.erase(productId);
 }
+
+void CartStore::clear(const std::string& cartId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = carts_.find(cartId);
+    if (found != carts_.end()) found->second.quantities.clear();
+}

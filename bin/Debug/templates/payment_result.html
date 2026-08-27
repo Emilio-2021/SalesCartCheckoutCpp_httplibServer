@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment result - SalesCartCheckout</title>
+    <link href="/static/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <main class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-6">
+                <div class="card border-0 shadow-sm text-center">
+                    <div class="card-body p-5">
+                        {% if success %}
+                        <div class="display-5 text-success mb-3">✓</div>
+                        <h1 class="h3">Payment simulation succeeded</h1>
+                        <p class="text-muted">Status recorded as <code>{{ payment_status }}</code>.</p>
+                        <p class="text-muted">Order <strong>#{{ order_id }}</strong> was created and inventory was updated.</p>
+                        {% else %}
+                        <div class="display-5 text-danger mb-3">×</div>
+                        <h1 class="h3">Payment simulation failed</h1>
+                        <p class="text-muted">Status recorded as <code>{{ payment_status }}</code>. No order was created.</p>
+                        {% endif %}
+                        <div class="d-flex justify-content-center gap-2 mt-4"><a class="btn btn-primary" href="/store">Return to store</a><a class="btn btn-outline-secondary" href="/cart">View cart</a></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>
