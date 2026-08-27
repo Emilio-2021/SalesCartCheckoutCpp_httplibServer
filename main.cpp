@@ -13,6 +13,8 @@ using std::string;
 #include "sqlite/sqlite3.h"
 #include "bcrypt/scc_bcrypt.h"
 #include "Liteqry.h"
+#include "session_store.h"
+#include "cart_store.h"
 #include <fstream>
 #include <filesystem>
 #include <functional>
@@ -21,10 +23,8 @@ using std::string;
 #include <iomanip>
 #include <mutex>
 #include <optional>
-#include <random>
 #include <stdexcept>
 #include <sstream>
-#include <unordered_map>
 #include <vector>
 // HTTPS
 //httplib::SSLServer svr;
@@ -48,124 +48,6 @@ struct AppConfig {
     string staticPath = "static/";
 };
 //--------------------------------------------------------------------------------------------------
-struct UserSession {
-    string userId;
-    string username;
-    string role;
-    string csrfToken;
-};
-
-string createSessionId();
-
-class SessionStore {
-public:
-    explicit SessionStore(const string& databasePath) : databasePath_(databasePath) {}
-
-    void initialize() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        Liteqry db(databasePath_);
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS sessions ("
-            "id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, "
-            "csrf_token TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL);");
-        try {
-            db.execute("ALTER TABLE sessions ADD COLUMN csrf_token TEXT;");
-        } catch (...) {
-            // The column already exists on an established database.
-        }
-        // A server restart invalidates all active sessions for this single-server application.
-        db.execute("DELETE FROM sessions;");
-    }
-
-    string create(const string& sessionId, const string& userId) {
-        const string csrfToken = createSessionId();
-        const auto now = std::chrono::system_clock::now();
-        const auto nowSeconds = std::chrono::duration_cast<std::chrono::seconds>(
-            now.time_since_epoch()).count();
-        const auto expiresSeconds = nowSeconds + 8 * 60 * 60;
-
-        std::lock_guard<std::mutex> lock(mutex_);
-        Liteqry db(databasePath_);
-        db.execute(
-            "INSERT INTO sessions (id, user_id, csrf_token, expires_at, created_at) VALUES (?, ?, ?, ?, ?);",
-            {sessionId, userId, csrfToken, std::to_string(expiresSeconds), std::to_string(nowSeconds)});
-        return csrfToken;
-    }
-
-    std::optional<UserSession> find(const string& sessionId) {
-        const auto nowSeconds = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-        std::lock_guard<std::mutex> lock(mutex_);
-        Liteqry db(databasePath_);
-        auto result = db.query(
-            "SELECT s.user_id, u.username, u.role, s.csrf_token FROM sessions s "
-            "JOIN users u ON u.id = s.user_id "
-            "WHERE s.id = ? AND s.expires_at > ?;",
-            {sessionId, std::to_string(nowSeconds)});
-        if (!result.next()) {
-            return std::nullopt;
-        }
-        return UserSession{result.at("user_id"), result.at("username"), result.at("role"), result.at("csrf_token")};
-    }
-
-    void erase(const string& sessionId) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        Liteqry db(databasePath_);
-        db.execute("DELETE FROM sessions WHERE id = ?;", {sessionId});
-    }
-
-    void eraseUser(const string& userId) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        Liteqry db(databasePath_);
-        db.execute("DELETE FROM sessions WHERE user_id = ?;", {userId});
-    }
-
-private:
-    string databasePath_;
-    std::mutex mutex_;
-};
-
-struct CartSnapshot {
-    string csrfToken;
-    std::unordered_map<int, int> quantities;
-};
-
-class CartStore {
-public:
-    CartSnapshot getOrCreate(const string& cartId) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        auto found = carts_.find(cartId);
-        if (found != carts_.end()) return found->second;
-
-        CartSnapshot cart;
-        cart.csrfToken = createSessionId();
-        carts_[cartId] = cart;
-        return cart;
-    }
-
-    bool hasValidCsrf(const string& cartId, const string& csrfToken) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        const auto found = carts_.find(cartId);
-        return found != carts_.end() && !csrfToken.empty() &&
-               found->second.csrfToken == csrfToken;
-    }
-
-    void setQuantity(const string& cartId, int productId, int quantity) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        carts_[cartId].quantities[productId] = quantity;
-    }
-
-    void remove(const string& cartId, int productId) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        const auto found = carts_.find(cartId);
-        if (found != carts_.end()) found->second.quantities.erase(productId);
-    }
-
-private:
-    std::unordered_map<string, CartSnapshot> carts_;
-    std::mutex mutex_;
-};
-
 struct CartContext {
     string id;
     CartSnapshot snapshot;
@@ -202,19 +84,6 @@ static string trim(const string& value) {
     if (first == string::npos) return "";
     const std::size_t last = value.find_last_not_of(whitespace);
     return value.substr(first, last - first + 1);
-}
-//--------------------------------------------------------------------------------------------------
-string createSessionId() {
-    static std::random_device randomDevice;
-    static std::mt19937_64 generator(randomDevice());
-    static std::mutex generatorMutex;
-    std::lock_guard<std::mutex> lock(generatorMutex);
-
-    std::ostringstream token;
-    for (int i = 0; i < 4; ++i) {
-        token << std::hex << std::setw(16) << std::setfill('0') << generator();
-    }
-    return token.str();
 }
 //--------------------------------------------------------------------------------------------------
 std::optional<string> getCookie(const httplib::Request& req, const string& name) {

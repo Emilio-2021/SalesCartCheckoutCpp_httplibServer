@@ -32,6 +32,10 @@
 			<Add library="ws2_32" />
 		</Linker>
 		<Unit filename="main.cpp" />
+		<Unit filename="session_store.h" />
+		<Unit filename="session_store.cpp" />
+		<Unit filename="cart_store.h" />
+		<Unit filename="cart_store.cpp" />
 		<Unit filename="third_party/Liteqry.h" />
 		<Unit filename="third_party/Liteqry.cpp" />
 		<Unit filename="third_party/bcrypt/bcrypt.cpp" />
