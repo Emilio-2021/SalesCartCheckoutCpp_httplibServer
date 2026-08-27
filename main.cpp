@@ -722,6 +722,7 @@ int main(int argc, char* argv[]) {
             }
 
             carts.clear(cart.id);
+            carts.setLastOrderId(cart.id, orderId);
             data["order_id"] = orderId;
         }
 
@@ -729,7 +730,61 @@ int main(int argc, char* argv[]) {
         res.set_content(html, "text/html; charset=UTF-8");
     }, true);
 
-    // 10. Login handler (POST) - Notice the 'true' at the end for POST requests!
+    // 10. Customer order confirmation (GET; public for the completing cart session)
+    safeRoute(svr, "/orders/confirmation/(\\d+)", [&](const httplib::Request& req, httplib::Response& res) {
+        const CartContext cart = getCartContext(req, res, carts);
+        const string orderId = req.matches[1].str();
+        if (cart.snapshot.lastOrderId != orderId) {
+            res.status = 404;
+            res.set_content("Order confirmation not found", "text/plain; charset=UTF-8");
+            return;
+        }
+
+        Liteqry db(config.databasePath);
+        auto order = db.query(
+            "SELECT o.id, e.name, e.email, o.status, o.created_at, "
+            "COALESCE(pay.status, 'UNKNOWN') AS payment_status, "
+            "printf('%.2f', COALESCE(SUM(oi.quantity * oi.unit_price), 0)) AS order_total "
+            "FROM orders o JOIN entities e ON e.id = o.entity_id "
+            "LEFT JOIN payments pay ON pay.order_id = o.id "
+            "LEFT JOIN order_items oi ON oi.order_id = o.id "
+            "WHERE o.id = ? GROUP BY o.id;", {orderId});
+        if (!order.next()) {
+            res.status = 404;
+            res.set_content("Order confirmation not found", "text/plain; charset=UTF-8");
+            return;
+        }
+
+        nlohmann::json data;
+        data["order_id"] = order.at("id");
+        data["customer_name"] = order.at("name");
+        data["customer_email"] = order.at("email");
+        data["status"] = order.at("status");
+        data["payment_status"] = order.at("payment_status");
+        data["created_at"] = order.at("created_at");
+        data["order_total"] = order.at("order_total");
+        data["items"] = nlohmann::json::array();
+
+        auto items = db.query(
+            "SELECT p.name, p.sku, oi.quantity, printf('%.2f', oi.unit_price) AS unit_price, "
+            "printf('%.2f', oi.quantity * oi.unit_price) AS line_total "
+            "FROM order_items oi JOIN products p ON p.id = oi.product_id "
+            "WHERE oi.order_id = ? ORDER BY oi.id ASC;", {orderId});
+        while (items.next()) {
+            nlohmann::json item;
+            item["name"] = items.at("name");
+            item["sku"] = items.at("sku");
+            item["quantity"] = items.at("quantity");
+            item["unit_price"] = items.at("unit_price");
+            item["line_total"] = items.at("line_total");
+            data["items"].push_back(item);
+        }
+
+        string html = env.render_file("order_confirmation.html", data);
+        res.set_content(html, "text/html; charset=UTF-8");
+    });
+
+    // 11. Login handler (POST) - Notice the 'true' at the end for POST requests!
     safeRoute(svr, "/login", [&](const httplib::Request& req, httplib::Response& res) {
         string username = req.get_param_value("username");
         string password = req.get_param_value("password");

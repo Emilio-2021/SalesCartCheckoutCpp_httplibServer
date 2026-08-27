@@ -22,7 +22,7 @@
                         <h1 class="h3">Payment simulation failed</h1>
                         <p class="text-muted">Status recorded as <code>{{ payment_status }}</code>. No order was created.</p>
                         {% endif %}
-                        <div class="d-flex justify-content-center gap-2 mt-4"><a class="btn btn-primary" href="/store">Return to store</a><a class="btn btn-outline-secondary" href="/cart">View cart</a></div>
+                        <div class="d-flex justify-content-center gap-2 mt-4">{% if success %}<a class="btn btn-primary" href="/orders/confirmation/{{ order_id }}">View order confirmation</a>{% endif %}<a class="btn btn-outline-secondary" href="/store">Return to store</a></div>
                     </div>
                 </div>
             </div>

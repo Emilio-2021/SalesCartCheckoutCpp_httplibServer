@@ -36,3 +36,8 @@ void CartStore::clear(const std::string& cartId) {
     const auto found = carts_.find(cartId);
     if (found != carts_.end()) found->second.quantities.clear();
 }
+
+void CartStore::setLastOrderId(const std::string& cartId, const std::string& orderId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    carts_[cartId].lastOrderId = orderId;
+}

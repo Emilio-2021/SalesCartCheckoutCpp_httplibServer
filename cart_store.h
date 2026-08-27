@@ -6,6 +6,7 @@
 
 struct CartSnapshot {
     std::string csrfToken;
+    std::string lastOrderId;
     std::unordered_map<int, int> quantities;
 };
 
@@ -16,6 +17,7 @@ public:
     void setQuantity(const std::string& cartId, int productId, int quantity);
     void remove(const std::string& cartId, int productId);
     void clear(const std::string& cartId);
+    void setLastOrderId(const std::string& cartId, const std::string& orderId);
 
 private:
     std::unordered_map<std::string, CartSnapshot> carts_;
