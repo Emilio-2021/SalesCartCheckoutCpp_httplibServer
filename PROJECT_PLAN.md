@@ -48,9 +48,9 @@ The application uses separate customer and internal-management permissions:
 - `viewer`: read-only access to internal management pages.
 - `customer`: storefront, cart, checkout, and the customer's own orders only.
 
-The existing `operator` role will be renamed to `manager`. Existing database
-users with the `operator` role must be migrated to `manager`. Customers must
-not receive access to internal dashboards or administrative data.
+The existing `operator` role has been renamed to `manager`, and existing
+database users have been migrated. Customers must not receive access to
+internal dashboards or administrative data.
 
 Guest browsing and checkout are allowed. A customer account is required for
 account-based order history and other personalized features.

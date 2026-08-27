@@ -167,6 +167,16 @@ bool requireAdmin(const httplib::Request& req,
         !requireRole(session, res, {"admin"})) return false;
     return req.method != "POST" || requireCsrfToken(req, res, session);
 }
+
+bool requireManager(const httplib::Request& req,
+                    httplib::Response& res,
+                    SessionStore& sessions,
+                    std::mutex& sessionsMutex,
+                    UserSession& session) {
+    if (!requireSession(req, res, sessions, sessionsMutex, session) ||
+        !requireRole(session, res, {"admin", "manager"})) return false;
+    return req.method != "POST" || requireCsrfToken(req, res, session);
+}
 //--------------------------------------------------------------------------------------------------
 bool parseInteger(const string& text, int& value, int minimum) {
     try {
@@ -210,7 +220,7 @@ bool parseEntityType(const string& text, int& entityType) {
 }
 //--------------------------------------------------------------------------------------------------
 bool isValidRole(const string& role) {
-    return role == "viewer" || role == "operator" || role == "admin";
+    return role == "viewer" || role == "manager" || role == "customer" || role == "admin";
 }
 //--------------------------------------------------------------------------------------------------
 string configPathFromExecutable(const char* executablePath) {
@@ -911,6 +921,7 @@ int main(int argc, char* argv[]) {
         data["username"] = session.username;
         data["role"] = session.role;
         data["csrf_token"] = session.csrfToken;
+        data["can_restock"] = session.role == "admin" || session.role == "manager";
         data["columns"] = sortableColumns;
         data["current_sort"] = sortBy;
         data["current_order"] = order;
@@ -987,19 +998,32 @@ int main(int argc, char* argv[]) {
         UserSession session;
         if (!requireSession(req, res, sessions, sessionsMutex, session)) return;
 
+        int lookupOrderId = 0;
+        const bool hasLookup = req.has_param("order_id");
+        if (hasLookup && !parseInteger(req.get_param_value("order_id"), lookupOrderId, 1)) {
+            res.status = 400;
+            res.set_content("Invalid order number", "text/plain; charset=UTF-8");
+            return;
+        }
+
         Liteqry db(config.databasePath);
-        auto orderRows = db.query(
+        string orderSql = string(
             "SELECT o.id AS order_id, COALESCE(e.name, 'Unknown customer') AS customer_name, "
             "o.status, o.created_at, "
             "printf('%.2f', COALESCE(SUM(oi.quantity * oi.unit_price), 0)) AS order_total "
             "FROM orders o LEFT JOIN entities e ON e.id = o.entity_id "
-            "LEFT JOIN order_items oi ON oi.order_id = o.id "
-            "GROUP BY o.id ORDER BY o.created_at DESC, o.id DESC;");
+            "LEFT JOIN order_items oi ON oi.order_id = o.id ") +
+            (hasLookup ? "WHERE o.id = ? " : "") +
+            "GROUP BY o.id ORDER BY o.created_at DESC, o.id DESC;";
+        const std::vector<string> lookupParams = hasLookup ?
+            std::vector<string>{std::to_string(lookupOrderId)} : std::vector<string>{};
+        auto orderRows = db.query(orderSql, lookupParams);
 
         nlohmann::json data;
         data["username"] = session.username;
         data["role"] = session.role;
         data["csrf_token"] = session.csrfToken;
+        data["search_order_id"] = hasLookup ? std::to_string(lookupOrderId) : "";
         data["orders"] = nlohmann::json::array();
         data["items"] = nlohmann::json::array();
         data["has_orders"] = false;
@@ -1014,12 +1038,14 @@ int main(int argc, char* argv[]) {
             data["has_orders"] = true;
         }
 
-        auto itemRows = db.query(
+        string itemSql = string(
             "SELECT oi.order_id, p.name AS product_name, p.sku, oi.quantity, "
             "printf('%.2f', oi.unit_price) AS unit_price, "
             "printf('%.2f', oi.quantity * oi.unit_price) AS row_total "
-            "FROM order_items oi LEFT JOIN products p ON p.id = oi.product_id "
-            "ORDER BY oi.order_id DESC, oi.id ASC;");
+            "FROM order_items oi LEFT JOIN products p ON p.id = oi.product_id ") +
+            (hasLookup ? "WHERE oi.order_id = ? " : "") +
+            "ORDER BY oi.order_id DESC, oi.id ASC;";
+        auto itemRows = db.query(itemSql, lookupParams);
         while (itemRows.next()) {
             nlohmann::json item;
             item["order_id"] = itemRows.at("order_id");
@@ -1132,11 +1158,11 @@ int main(int argc, char* argv[]) {
         res.set_content(html, "text/html; charset=UTF-8");
     });
 
-    // 10. Create order (POST; operators and administrators only)
+    // 10. Create order (POST; managers and administrators only)
     safeRoute(svr, "/admin/checkout/create", [&](const httplib::Request& req, httplib::Response& res) {
         UserSession session;
         if (!requireSession(req, res, sessions, sessionsMutex, session)) return;
-        if (!requireRole(session, res, {"operator", "admin"}) ||
+        if (!requireRole(session, res, {"manager", "admin"}) ||
             !requireCsrfToken(req, res, session)) return;
 
         int entityId = 0;
@@ -1227,11 +1253,11 @@ int main(int argc, char* argv[]) {
         }
     }, true);
 
-    // 11. Full order refund (POST; operators and administrators only)
+    // 11. Full order refund (POST; managers and administrators only)
     safeRoute(svr, "/orders/(\\d+)/refund", [&](const httplib::Request& req, httplib::Response& res) {
         UserSession session;
         if (!requireSession(req, res, sessions, sessionsMutex, session)) return;
-        if (!requireRole(session, res, {"operator", "admin"}) ||
+        if (!requireRole(session, res, {"manager", "admin"}) ||
             !requireCsrfToken(req, res, session)) return;
 
         const string reason = trim(req.get_param_value("reason"));
@@ -1512,6 +1538,30 @@ int main(int argc, char* argv[]) {
         db.execute(
             "UPDATE products SET name = ?, sku = ?, price = ?, stock_quantity = ? WHERE id = ?;",
             {name, sku, price, std::to_string(stockQuantity), std::to_string(id)});
+        res.set_redirect("/products-view", 303);
+    }, true);
+
+    safeRoute(svr, "/products/restock", [&](const httplib::Request& req, httplib::Response& res) {
+        UserSession session;
+        if (!requireManager(req, res, sessions, sessionsMutex, session)) return;
+
+        int productId = 0;
+        int quantity = 0;
+        if (!parseInteger(req.get_param_value("id"), productId, 1) ||
+            !parseInteger(req.get_param_value("quantity"), quantity, 1)) {
+            res.status = 400;
+            res.set_content("Invalid restock data", "text/plain; charset=UTF-8");
+            return;
+        }
+
+        Liteqry db(config.databasePath);
+        if (db.execute(
+                "UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?;",
+                {std::to_string(quantity), std::to_string(productId)}) != 1) {
+            res.status = 404;
+            res.set_content("Product not found", "text/plain; charset=UTF-8");
+            return;
+        }
         res.set_redirect("/products-view", 303);
     }, true);
 

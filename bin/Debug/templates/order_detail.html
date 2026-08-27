@@ -16,7 +16,7 @@
             <div><h1>Order #{{ order.order_id }}</h1><p class="text-muted mb-0">Created {{ order.created_at }}</p></div>
             <a id="back-link" href="{{ back_url }}" class="btn btn-outline-secondary">{{ back_label }}</a>
         </div>
-        {% if read_only %}<div class="alert alert-info"><strong>Read-only registry:</strong> refunds are available to operators and administrators only.</div>{% endif %}
+        {% if read_only %}<div class="alert alert-info"><strong>Read-only registry:</strong> refunds are available to managers and administrators only.</div>{% endif %}
         <div class="row g-4">
             <div class="col-md-4">
                 <div class="card shadow-sm h-100"><div class="card-header bg-white fw-bold">Order Summary</div><div class="card-body">
