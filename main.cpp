@@ -370,6 +370,8 @@ int main(int argc, char* argv[]) {
         }
         data["product_count"] = data["products"].size();
         data["csrf_token"] = cart.snapshot.csrfToken;
+        const auto signedInSession = getSession(req, sessions, sessionsMutex);
+        data["is_customer"] = signedInSession && signedInSession->role == "customer";
         data["cart_item_count"] = cartItemCount;
         std::ostringstream formattedCartSubtotal;
         formattedCartSubtotal << std::fixed << std::setprecision(2) << cartSubtotal;
@@ -687,9 +689,12 @@ int main(int argc, char* argv[]) {
                     entityId = entity.at("id");
                 }
 
+                const auto authenticatedCustomer = getSession(req, sessions, sessionsMutex);
+                const string customerUserId = authenticatedCustomer &&
+                    authenticatedCustomer->role == "customer" ? authenticatedCustomer->userId : "";
                 db.execute(
-                    "INSERT INTO orders (entity_id, user_id, status) VALUES (?, NULL, 'COMPLETED');",
-                    {entityId});
+                    "INSERT INTO orders (entity_id, user_id, status) VALUES (?, NULLIF(?, ''), 'COMPLETED');",
+                    {entityId, customerUserId});
                 {
                     auto order = db.query("SELECT last_insert_rowid() AS id;");
                     if (!order.next()) throw std::runtime_error("Could not create order");
@@ -794,7 +799,43 @@ int main(int argc, char* argv[]) {
         res.set_content(html, "text/html; charset=UTF-8");
     });
 
-    // 11. Login handler (POST) - Notice the 'true' at the end for POST requests!
+    // 11. Customer order history (GET; customers can view only their own orders)
+    safeRoute(svr, "/my-orders", [&](const httplib::Request& req, httplib::Response& res) {
+        UserSession session;
+        if (!requireSession(req, res, sessions, sessionsMutex, session)) return;
+        if (!requireRole(session, res, {"customer"})) return;
+
+        Liteqry db(config.databasePath);
+        auto orderRows = db.query(
+            "SELECT o.id AS order_id, o.status, o.created_at, "
+            "COALESCE(pay.status, 'UNKNOWN') AS payment_status, "
+            "printf('%.2f', COALESCE(SUM(oi.quantity * oi.unit_price), 0)) AS order_total "
+            "FROM orders o "
+            "LEFT JOIN payments pay ON pay.order_id = o.id "
+            "LEFT JOIN order_items oi ON oi.order_id = o.id "
+            "WHERE o.user_id = ? GROUP BY o.id "
+            "ORDER BY o.created_at DESC, o.id DESC;",
+            {session.userId});
+
+        nlohmann::json data;
+        data["username"] = session.username;
+        data["role"] = session.role;
+        data["orders"] = nlohmann::json::array();
+        while (orderRows.next()) {
+            nlohmann::json order;
+            order["order_id"] = orderRows.at("order_id");
+            order["status"] = orderRows.at("status");
+            order["payment_status"] = orderRows.at("payment_status");
+            order["created_at"] = orderRows.at("created_at");
+            order["order_total"] = orderRows.at("order_total");
+            data["orders"].push_back(order);
+        }
+
+        string html = env.render_file("my_orders.html", data);
+        res.set_content(html, "text/html; charset=UTF-8");
+    });
+
+    // 12. Login handler (POST) - Notice the 'true' at the end for POST requests!
     safeRoute(svr, "/login", [&](const httplib::Request& req, httplib::Response& res) {
         string username = req.get_param_value("username");
         string password = req.get_param_value("password");
@@ -823,7 +864,10 @@ int main(int argc, char* argv[]) {
             res.set_header("Set-Cookie",
                            "scc_session=" + sessionId +
                            "; Path=/; Max-Age=28800; HttpOnly; SameSite=Lax");
-            res.set_redirect("/dashboard", 302);
+            Liteqry db(config.databasePath);
+            auto loggedInUser = db.query("SELECT role FROM users WHERE id = ?;", {userId});
+            const string role = loggedInUser.next() ? loggedInUser.at("role") : "";
+            res.set_redirect(role == "customer" ? "/store" : "/dashboard", 302);
         } else {
             nlohmann::json errorData;
             errorData["error"] = "Invalid username or password!";
@@ -843,7 +887,8 @@ int main(int argc, char* argv[]) {
     // 4. Dashboard page (GET)
     safeRoute(svr, "/dashboard", [&](const httplib::Request& req, httplib::Response& res) {
         UserSession session;
-        if (!requireSession(req, res, sessions, sessionsMutex, session)) return;
+        if (!requireSession(req, res, sessions, sessionsMutex, session) ||
+            !requireRole(session, res, {"viewer", "manager", "admin"})) return;
 
         nlohmann::json data;
         data["error"] = "";
@@ -895,7 +940,8 @@ int main(int argc, char* argv[]) {
     // 5. Product catalog (GET; all authenticated roles may view)
     safeRoute(svr, "/products-view", [&](const httplib::Request& req, httplib::Response& res) {
         UserSession session;
-        if (!requireSession(req, res, sessions, sessionsMutex, session)) return;
+        if (!requireSession(req, res, sessions, sessionsMutex, session) ||
+            !requireRole(session, res, {"viewer", "manager", "admin"})) return;
 
         const std::vector<string> sortableColumns = {
             "id", "name", "sku", "price", "stock_quantity", "created_at"};
@@ -944,7 +990,8 @@ int main(int argc, char* argv[]) {
     // 6. Business entity registry (GET; all authenticated roles may view)
     safeRoute(svr, "/entities-view", [&](const httplib::Request& req, httplib::Response& res) {
         UserSession session;
-        if (!requireSession(req, res, sessions, sessionsMutex, session)) return;
+        if (!requireSession(req, res, sessions, sessionsMutex, session) ||
+            !requireRole(session, res, {"viewer", "manager", "admin"})) return;
 
         const std::vector<string> sortableColumns = {
             "id", "entity_type", "name", "email", "created_at"};
@@ -996,7 +1043,8 @@ int main(int argc, char* argv[]) {
     // 7. Orders list (GET; all authenticated roles may view)
     safeRoute(svr, "/orders-view", [&](const httplib::Request& req, httplib::Response& res) {
         UserSession session;
-        if (!requireSession(req, res, sessions, sessionsMutex, session)) return;
+        if (!requireSession(req, res, sessions, sessionsMutex, session) ||
+            !requireRole(session, res, {"viewer", "manager", "admin"})) return;
 
         int lookupOrderId = 0;
         const bool hasLookup = req.has_param("order_id");
@@ -1065,17 +1113,26 @@ int main(int argc, char* argv[]) {
     safeRoute(svr, "/orders/(\\d+)", [&](const httplib::Request& req, httplib::Response& res) {
         UserSession session;
         if (!requireSession(req, res, sessions, sessionsMutex, session)) return;
+        if (session.role == "customer") {
+            // Customer ownership is enforced by the order query below.
+        } else if (!requireRole(session, res, {"viewer", "manager", "admin"})) {
+            return;
+        }
 
         const string orderId = req.matches[1].str();
         Liteqry db(config.databasePath);
+        const string orderOwnership = session.role == "customer" ?
+            " AND o.user_id = ?" : "";
+        const std::vector<string> orderParams = session.role == "customer" ?
+            std::vector<string>{orderId, session.userId} : std::vector<string>{orderId};
         auto orderRows = db.query(
             "SELECT o.id AS order_id, COALESCE(e.name, 'Unknown customer') AS customer_name, "
             "o.status, o.created_at, "
             "printf('%.2f', COALESCE(SUM(oi.quantity * oi.unit_price), 0)) AS order_total "
             "FROM orders o LEFT JOIN entities e ON e.id = o.entity_id "
             "LEFT JOIN order_items oi ON oi.order_id = o.id "
-            "WHERE o.id = ? GROUP BY o.id;",
-            {orderId});
+            "WHERE o.id = ?" + orderOwnership + " GROUP BY o.id;",
+            orderParams);
 
         if (!orderRows.next()) {
             res.status = 404;
@@ -1121,7 +1178,8 @@ int main(int argc, char* argv[]) {
     // 10. Internal checkout page (GET; all authenticated roles may view)
     safeRoute(svr, "/admin/checkout", [&](const httplib::Request& req, httplib::Response& res) {
         UserSession session;
-        if (!requireSession(req, res, sessions, sessionsMutex, session)) return;
+        if (!requireSession(req, res, sessions, sessionsMutex, session) ||
+            !requireRole(session, res, {"viewer", "manager", "admin"})) return;
 
         Liteqry db(config.databasePath);
         auto customerRows = db.query(

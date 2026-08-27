@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Orders - SalesCartCheckout</title>
+    <link href="/static/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-dark px-3 justify-content-between">
+        <a class="navbar-brand" href="/store">SalesCartCheckout</a>
+        <span class="text-white">{{ username }} <span class="badge bg-secondary">{{ role }}</span>
+            <a href="/logout" class="btn btn-sm btn-danger ms-2">Logout</a></span>
+    </nav>
+    <main class="container py-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <p class="text-uppercase text-primary fw-semibold small mb-2">Customer account</p>
+                <h1 class="mb-1">My orders</h1>
+                <p class="text-muted mb-0">Review your completed purchases and order confirmations.</p>
+            </div>
+            <a class="btn btn-primary" href="/store">Continue shopping</a>
+        </div>
+        {% if orders %}
+        <div class="row g-4">
+            {% for order in orders %}
+            <div class="col-12 col-md-6">
+                <article class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <h2 class="h5 mb-0">Order #{{ order.order_id }}</h2>
+                            <span class="badge bg-success text-uppercase">{{ order.status }}</span>
+                        </div>
+                        <dl class="row mb-4">
+                            <dt class="col-6 text-muted">Placed</dt><dd class="col-6 text-end">{{ order.created_at }}</dd>
+                            <dt class="col-6 text-muted">Payment</dt><dd class="col-6 text-end">{{ order.payment_status }}</dd>
+                            <dt class="col-6 text-muted">Total</dt><dd class="col-6 text-end fw-bold">${{ order.order_total }}</dd>
+                        </dl>
+                        <a class="btn btn-outline-primary w-100" href="/orders/{{ order.order_id }}?back=my-orders">View order details</a>
+                    </div>
+                </article>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="card shadow-sm"><div class="card-body text-center py-5">
+            <h2 class="h5">No orders yet</h2>
+            <p class="text-muted">Your completed purchases will appear here.</p>
+            <a class="btn btn-primary" href="/store">Browse the store</a>
+        </div></div>
+        {% endif %}
+    </main>
+</body>
+</html>
