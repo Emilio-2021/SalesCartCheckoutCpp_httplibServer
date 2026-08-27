@@ -1,4 +1,4 @@
--- Development database seed for Testhttplib.
+-- Development database seed for SalesCartCheckout.
 -- This file intentionally contains no real credentials or production data.
 
 PRAGMA foreign_keys = ON;

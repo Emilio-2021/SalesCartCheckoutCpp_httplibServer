@@ -2,12 +2,12 @@
 <CodeBlocks_project_file>
 	<FileVersion major="1" minor="6" />
 	<Project>
-		<Option title="Testhttplib" />
+		<Option title="SalesCartCheckout" />
 		<Option pch_mode="2" />
 		<Option compiler="gcc-mingw64" />
 		<Build>
 			<Target title="Debug">
-				<Option output="bin/Debug/Testhttplib" prefix_auto="1" extension_auto="1" />
+				<Option output="bin/Debug/SalesCartCheckout" prefix_auto="1" extension_auto="1" />
 				<Option object_output="obj/Debug/" />
 				<Option type="1" />
 				<Option compiler="gcc-mingw64" />
@@ -16,7 +16,7 @@
 				</Compiler>
 			</Target>
 			<Target title="Release">
-				<Option output="bin/Release/Testhttplib" prefix_auto="1" extension_auto="1" />
+				<Option output="bin/Release/SalesCartCheckout" prefix_auto="1" extension_auto="1" />
 				<Option object_output="obj/Release/" />
 				<Option type="1" />
 				<Option compiler="gcc-mingw64" />
@@ -26,7 +26,7 @@
 			</Target>
 		</Build>
 		<Compiler>
-			<Add directory="C:/CodeBlocks/Testhttplib/third_party" />
+			<Add directory="third_party" />
 		</Compiler>
 		<Linker>
 			<Add library="ws2_32" />

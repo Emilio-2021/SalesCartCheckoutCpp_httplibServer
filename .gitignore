@@ -1,6 +1,6 @@
 # CodeBlocks/build output
 /obj/
-/bin/Debug/Testhttplib.exe
+/bin/Debug/*.exe
 *.depend
 *.layout
 

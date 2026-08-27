@@ -14,6 +14,7 @@ using std::string;
 #include "bcrypt/scc_bcrypt.h"
 #include "Liteqry.h"
 #include <fstream>
+#include <filesystem>
 #include <functional>
 #include <chrono>
 #include <cmath>
@@ -41,7 +42,7 @@ void printAll(const T& msg) {
 struct AppConfig {
     string host = "127.0.0.1";
     int port = 8080;
-    string databasePath = "data/sccrest.db";
+    string databasePath = "data/salescart.db";
     string templatesPath = "templates/";
     string staticPath = "static/";
 };
@@ -271,7 +272,16 @@ bool isValidRole(const string& role) {
     return role == "viewer" || role == "operator" || role == "admin";
 }
 //--------------------------------------------------------------------------------------------------
-AppConfig iniConfig(const string& iniPath = "Testhttplib.ini") {
+string configPathFromExecutable(const char* executablePath) {
+    if (executablePath == nullptr || string(executablePath).empty()) {
+        return "app.ini";
+    }
+
+    const std::filesystem::path executable(executablePath);
+    return (executable.parent_path() / (executable.stem().string() + ".ini")).string();
+}
+
+AppConfig iniConfig(const string& iniPath) {
     AppConfig config;
     std::ifstream file(iniPath);
 
@@ -338,10 +348,10 @@ void safeRoute(httplib::Server& svr, const string& path, std::function<void(cons
 }
 //--------------------------------------------------------------------------------------------------
 int main(int argc, char* argv[]) {
-    AppConfig config = iniConfig();
+    AppConfig config = iniConfig(configPathFromExecutable(argc > 0 ? argv[0] : nullptr));
 
 	if (argc > 2) {
-		std::cerr << "Usage: Testhttplib [port]\n";
+		std::cerr << "Usage: SalesCartCheckout [port]\n";
 		return 1;
 	}
 
