@@ -40,13 +40,12 @@
                                 </div>
                                 <div class="text-end">
                                     <strong class="d-block mb-2">${{ item.line_total }}</strong>
-                                    <form action="/cart/update" method="POST" class="d-inline-flex gap-2 align-items-center">
-                                        <input type="hidden" name="product_id" value="{{ item.id }}">
-                                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                    <div class="quantity-control d-inline-flex gap-2 align-items-center" data-product-id="{{ item.id }}" data-quantity="{{ item.quantity }}" data-stock="{{ item.stock_quantity }}" data-csrf="{{ csrf_token }}">
+                                        <button class="btn btn-sm btn-outline-secondary quantity-decrement" type="button" aria-label="Decrease quantity">−</button>
                                         <label class="visually-hidden" for="quantity-{{ item.id }}">Quantity</label>
-                                        <input class="form-control form-control-sm" id="quantity-{{ item.id }}" name="quantity" type="number" min="1" max="{{ item.stock_quantity }}" value="{{ item.quantity }}" style="width: 82px">
-                                        <button class="btn btn-sm btn-outline-primary" type="submit">Update</button>
-                                    </form>
+                                        <input class="form-control form-control-sm quantity-input text-center" id="quantity-{{ item.id }}" type="number" min="0" max="{{ item.stock_quantity }}" value="{{ item.quantity }}" style="width: 70px" aria-label="Quantity">
+                                        <button class="btn btn-sm btn-outline-secondary quantity-increment" type="button" aria-label="Increase quantity">+</button>
+                                    </div>
                                     <form action="/cart/remove" method="POST" class="d-inline">
                                         <input type="hidden" name="product_id" value="{{ item.id }}">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -73,4 +72,35 @@
         {% endif %}
     </main>
 </body>
+<script>
+function changeCartQuantity(control, requestedQuantity) {
+    const currentQuantity = Number(control.dataset.quantity);
+    const stock = Number(control.dataset.stock);
+    const quantity = Math.min(stock, Math.max(0, requestedQuantity));
+    if (quantity === currentQuantity) return;
+
+    const endpoint = quantity === 0 ? '/cart/remove' : '/cart/update';
+    const body = new URLSearchParams({ product_id: control.dataset.productId, csrf_token: control.dataset.csrf });
+    if (endpoint === '/cart/update') body.set('quantity', String(quantity));
+    fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body })
+        .then(function (response) {
+            if (!response.ok) throw new Error('Cart update failed');
+            window.location.reload();
+        })
+        .catch(function () { window.location.reload(); });
+}
+
+document.addEventListener('click', function (event) {
+    const control = event.target.closest('.quantity-control');
+    if (!control) return;
+    const current = Number(control.dataset.quantity);
+    if (event.target.closest('.quantity-decrement')) changeCartQuantity(control, current - 1);
+    if (event.target.closest('.quantity-increment')) changeCartQuantity(control, current + 1);
+});
+
+document.addEventListener('change', function (event) {
+    if (!event.target.classList.contains('quantity-input')) return;
+    changeCartQuantity(event.target.closest('.quantity-control'), Number(event.target.value));
+});
+</script>
 </html>

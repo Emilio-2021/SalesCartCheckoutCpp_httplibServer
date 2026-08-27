@@ -333,6 +333,8 @@ int main(int argc, char* argv[]) {
 
         nlohmann::json data;
         data["products"] = nlohmann::json::array();
+        int cartItemCount = 0;
+        double cartSubtotal = 0.0;
         while (rows.next()) {
             nlohmann::json product;
             product["id"] = rows.at("id");
@@ -341,13 +343,19 @@ int main(int argc, char* argv[]) {
             product["price"] = rows.at("price");
             product["stock_quantity"] = rows.at("stock_quantity");
             product["in_stock"] = rows.at("stock_quantity") != "0";
+            const auto cartItem = cart.snapshot.quantities.find(std::stoi(rows.at("id")));
+            const int cartQuantity = cartItem == cart.snapshot.quantities.end() ? 0 : cartItem->second;
+            product["cart_quantity"] = cartQuantity;
+            cartItemCount += cartQuantity;
+            cartSubtotal += std::stod(rows.at("price")) * cartQuantity;
             data["products"].push_back(product);
         }
         data["product_count"] = data["products"].size();
         data["csrf_token"] = cart.snapshot.csrfToken;
-        int cartItemCount = 0;
-        for (const auto& entry : cart.snapshot.quantities) cartItemCount += entry.second;
         data["cart_item_count"] = cartItemCount;
+        std::ostringstream formattedCartSubtotal;
+        formattedCartSubtotal << std::fixed << std::setprecision(2) << cartSubtotal;
+        data["cart_subtotal"] = formattedCartSubtotal.str();
 
         string html = env.render_file("store.html", data);
         res.set_content(html, "text/html; charset=UTF-8");
