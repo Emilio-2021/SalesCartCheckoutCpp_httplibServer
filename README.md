@@ -135,3 +135,8 @@ Potential production extensions would include HTTPS, secure deployment configura
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+Copyright (c) 2026 Emilio Caraballo.
+
+Third-party software notices and license information are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

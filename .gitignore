@@ -12,3 +12,6 @@
 /dump_db.cpp
 /dump_db.exe
 /dump_sqlite.o
+
+# Local planning notes
+/PROJECT_PLAN.md
