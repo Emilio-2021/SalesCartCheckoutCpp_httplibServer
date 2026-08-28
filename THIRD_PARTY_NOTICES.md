@@ -48,6 +48,13 @@ files and bundled assets.
 - License: MIT
 - Source: <https://github.com/twbs/bootstrap>
 
+## Project-owned code
+
+`Liteqry.h` and `Liteqry.cpp` are original SalesCartCheckout project code: a
+SQLite data-access wrapper maintained by Emilio Caraballo. They are located at
+the repository root and are covered by this repository's [MIT License](LICENSE),
+not by a third-party license.
+
 ## Disclaimer
 
 Third-party software is provided under its respective license. To the fullest

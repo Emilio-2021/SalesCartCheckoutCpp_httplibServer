@@ -2,7 +2,7 @@
 #ifndef LITEQRY_H
 #define LITEQRY_H
 
-#include "sqlite/sqlite3.h"
+#include "third_party/sqlite/sqlite3.h"
 #include <string>
 #include <vector>
 //--------------------------------------------------------------------------------------------------

@@ -36,8 +36,8 @@
 		<Unit filename="session_store.cpp" />
 		<Unit filename="cart_store.h" />
 		<Unit filename="cart_store.cpp" />
-		<Unit filename="third_party/Liteqry.h" />
-		<Unit filename="third_party/Liteqry.cpp" />
+		<Unit filename="Liteqry.h" />
+		<Unit filename="Liteqry.cpp" />
 		<Unit filename="third_party/bcrypt/bcrypt.cpp" />
 		<Unit filename="third_party/bcrypt/blowfish.cpp" />
 		<Unit filename="third_party/sqlite/sqlite3.c">
